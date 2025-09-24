@@ -1,0 +1,180 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  student
+  professor
+  admin
+}
+
+// ========== USERS ==========
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String
+  name         String
+  role         Role
+  branch       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  professorAssignments ProfessorAssignment[]
+  courseRegistrations  StudentCourseRegistration[]
+  classSessions        ClassSession[]         @relation("SessionProfessor")
+  attendanceRecords    AttendanceRecord[]     @relation("AttendanceStudent")
+  markedAttendances    AttendanceRecord[]     @relation("AttendanceMarker")
+  audits               AttendanceAudit[]      @relation("AuditPerformer")
+}
+
+// ========== BATCHES ==========
+model Batch {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  year      Int
+  branch    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  offerings CourseOffering[]
+}
+
+// ========== COURSES ==========
+model Course {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  title       String
+  description String?
+  credits     Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  // Relations
+  offerings CourseOffering[]
+}
+
+// ========== COURSE OFFERINGS ==========
+model CourseOffering {
+  id        String   @id @default(uuid())
+  courseId  String
+  batchId   String
+  semester  String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  course       Course   @relation(fields: [courseId], references: [id])
+  batch        Batch    @relation(fields: [batchId], references: [id])
+  professors   ProfessorAssignment[]
+  registrations StudentCourseRegistration[]
+  sessions     ClassSession[]
+
+  @@unique([courseId, batchId, semester])
+}
+
+// ========== PROFESSOR ASSIGNMENTS ==========
+model ProfessorAssignment {
+  id           String   @id @default(uuid())
+  professorId  String
+  offeringId   String
+  createdAt    DateTime @default(now())
+
+  // Relations
+  professor User           @relation(fields: [professorId], references: [id])
+  offering  CourseOffering @relation(fields: [offeringId], references: [id])
+
+  @@unique([professorId, offeringId])
+}
+
+// ========== STUDENT COURSE REGISTRATIONS ==========
+model StudentCourseRegistration {
+  id          String   @id @default(uuid())
+  studentId   String
+  offeringId  String
+  registeredAt DateTime @default(now())
+
+  // Relations
+  student  User           @relation(fields: [studentId], references: [id])
+  offering CourseOffering @relation(fields: [offeringId], references: [id])
+
+  @@unique([studentId, offeringId])
+}
+
+// ========== CLASS SESSIONS ==========
+model ClassSession {
+  id          String   @id @default(uuid())
+  offeringId  String
+  professorId String
+  sessionDate DateTime // only store date part in app logic if needed
+  topic       String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  offering  CourseOffering @relation(fields: [offeringId], references: [id])
+  professor User           @relation("SessionProfessor", fields: [professorId], references: [id])
+  attendances AttendanceRecord[]
+  qrTokens    QRToken[]
+
+  @@unique([offeringId, professorId, sessionDate])
+}
+
+// ========== ATTENDANCE RECORDS ==========
+model AttendanceRecord {
+  id        String   @id @default(uuid())
+  sessionId String
+  studentId String
+  status    AttendanceStatus
+  markedAt  DateTime @default(now())
+  markedById String?
+  source    String?
+  notes     String?
+
+  // Relations
+  session   ClassSession @relation(fields: [sessionId], references: [id])
+  student   User         @relation("AttendanceStudent", fields: [studentId], references: [id])
+  markedBy  User?        @relation("AttendanceMarker", fields: [markedById], references: [id])
+  audits    AttendanceAudit[]
+
+  @@unique([sessionId, studentId])
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  excused
+}
+
+// ========== QR TOKENS ==========
+model QRToken {
+  id         String   @id @default(uuid())
+  sessionId  String
+  token      String   @unique
+  validFrom  DateTime @default(now())
+  validUntil DateTime?
+  maxUses    Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  // Relations
+  session ClassSession @relation(fields: [sessionId], references: [id])
+}
+
+// ========== ATTENDANCE AUDIT ==========
+model AttendanceAudit {
+  id            String   @id @default(uuid())
+  attendanceId  String?
+  action        String
+  oldStatus     AttendanceStatus?
+  newStatus     AttendanceStatus?
+  performedById String?
+  performedAt   DateTime @default(now())
+  reason        String?
+
+  // Relations
+  attendance AttendanceRecord? @relation(fields: [attendanceId], references: [id])
+  performedBy User?            @relation("AuditPerformer", fields: [performedById], references: [id])
+}
