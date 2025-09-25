@@ -4,6 +4,7 @@ import {
   updateProfessorAssignment,
   deleteProfessorAssignment,
   generateSessionQR,
+  getProfessorCourseOfferings,
 } from "./professor.controller";
 import { authenticateToken } from "../auth/auth.middleware";
 
@@ -13,5 +14,6 @@ router.post("/professor-assignment", authenticateToken, createProfessorAssignmen
 router.put("/professor-assignment/:id", authenticateToken, updateProfessorAssignment);
 router.delete("/professor-assignment/:id", authenticateToken, deleteProfessorAssignment);
 router.post("/generateQR", authenticateToken, generateSessionQR);
+router.get("/:professorId/offerings", authenticateToken, getProfessorCourseOfferings);
 
 export default router;

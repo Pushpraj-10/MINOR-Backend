@@ -3,6 +3,7 @@ import { CreateProfessorAssignment,
   UpdateProfessorAssignment,
   DeleteProfessorAssignment,
   GenerateSessionQR,
+  GetProfessorCourseOfferings,
 } from "./professor.validation";
 import { ProfessorService } from "./professor.service";
 
@@ -55,6 +56,22 @@ export async function generateSessionQR(req: Request, res: Response) {
     const qrToken = await ProfessorService.generateToken(parsed);
 
     res.status(201).json(qrToken);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
+
+// ========== GET PROFESSOR COURSE OFFERINGS ==========
+export async function getProfessorCourseOfferings(req: Request, res: Response) {
+  try {
+    // Validate request params with Zod
+    const parsed = GetProfessorCourseOfferings.parse(req.params);
+
+    // Pass the validated object to the service
+    const offerings = await ProfessorService.getProfessorCourseOfferings(parsed);
+
+    res.json(offerings);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }

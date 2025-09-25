@@ -5,6 +5,7 @@ import {
   ProfessorAssignmentUpdationSchema,
   ProfessorAssignmentDeletionSchema,
   GenerateSessionQRSchema,
+  GetProfessorCourseOfferingsSchema,
 } from "./professor.validation";
 
 export class ProfessorService {
@@ -101,4 +102,33 @@ export class ProfessorService {
 
     return qrToken;
   }
+
+  // ====== FETCHING COURSES ======
+  static async getProfessorCourseOfferings(
+  data: GetProfessorCourseOfferingsSchema) {
+  const { professorId } = data;
+
+  const assignments = await prisma.professorAssignment.findMany({
+    where: { professorId },
+    include: {
+      offering: {
+        include: {
+          course: true, // course details (Course table)
+          batch: true,  // batch details
+        },
+      },
+    },
+  });
+
+  // Transform into a clean DTO
+  const offerings = assignments.map((assignment) => ({
+    offeringId: assignment.offering.id,
+    semester: assignment.offering.semester,
+    createdAt: assignment.offering.createdAt,
+    course: assignment.offering.course,
+    batch: assignment.offering.batch,
+  }));
+
+  return offerings;
+}
 }

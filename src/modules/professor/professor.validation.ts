@@ -26,8 +26,15 @@ export const GenerateSessionQR = z.object({
   maxUses: z.number().int().min(0).default(0) // 0 = unlimited
 });
 
+// ====== GET PROFESSOR COURSE OFFERINGS ======
+export const GetProfessorCourseOfferings = z.object({
+  professorId: z.string().uuid(),
+});
+
+
 // ====== Types ======
 export type ProfessorAssignmentCreationSchema = z.infer<typeof CreateProfessorAssignment>;
 export type ProfessorAssignmentUpdationSchema = z.infer<typeof UpdateProfessorAssignment>;
 export type ProfessorAssignmentDeletionSchema = z.infer<typeof DeleteProfessorAssignment>;
 export type GenerateSessionQRSchema = z.infer<typeof GenerateSessionQR>;
+export type GetProfessorCourseOfferingsSchema = z.infer<typeof GetProfessorCourseOfferings>;
