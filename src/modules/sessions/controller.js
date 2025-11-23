@@ -36,4 +36,11 @@ exports.getSessionAttendance = async function (req, res) {
   }
 };
 
-
+exports.getAttendance = async function (req, res) {
+  try {
+    const result = await service.getAttendanceRaw(req.params.sessionId);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};

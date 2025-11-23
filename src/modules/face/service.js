@@ -14,14 +14,9 @@ class FaceService {
   }
 
   static async verify(body) {
-    const { uid, embedding, threshold } = body || {};
-    if (!uid || !Array.isArray(embedding)) throw new Error('uid and embedding required');
-    const user = await User.findOne({ uid });
-    if (!user || !user.face?.embedding) throw new Error('no stored embedding');
-    const score = cosineSimilarity(embedding, user.face.embedding);
-    const t = parseFloat(threshold ?? process.env.FACE_THRESHOLD ?? '0.3');
-    const match = score >= t;
-    return { match, score, threshold: t };
+    // Server-side face verification is disabled in this deployment.
+    // Clients should perform biometric/face verification locally and use the biometric flow.
+    throw new Error('face_verification_disabled');
   }
 }
 

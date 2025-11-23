@@ -1,10 +1,10 @@
 const jwt = require('jsonwebtoken');
-const { customAlphabet } = require('nanoid');
+const crypto = require('crypto');
 const Session = require('../../models/session');
 const Attendance = require('../../models/attendance');
 const User = require('../../models/user');
+const BiometricsService = require('../../modules/biometrics/service');
 
-const nanoid = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', 6);
 
 function authzProfessor(authorization) {
   if (!authorization) throw new Error('missing Authorization header');
@@ -19,8 +19,8 @@ class SessionsService {
     const { title, durationMinutes = 30 } = body || {};
     const decoded = authzProfessor(authorization);
     const sessionId = 'sess_' + Date.now();
-    // qrSeed is a longer random value used to derive per-second rotating tokens via HMAC/time slices
-    const qrSeed = nanoid() + nanoid();
+    // qrSeed is a cryptographically strong random value used to derive per-second rotating tokens
+    const qrSeed = crypto.randomBytes(32).toString('hex');
     const now = new Date();
     const expiresAt = new Date(now.getTime() + durationMinutes * 60 * 1000);
     const doc = await Session.create({ sessionId, professorUid: decoded.uid, title: title || null, qrSeed, createdAt: now, expiresAt });
@@ -28,7 +28,32 @@ class SessionsService {
   }
 
   static async checkin(body) {
-    const { qrToken, studentUid, embedding, sessionId } = body || {};
+    const { qrToken, studentUid, embedding, sessionId, method: authMethod, challenge, signature } = body || {};
+    // Biometric path
+    if (authMethod === 'biometric') {
+      if (!studentUid) throw new Error('studentUid required');
+      if (!sessionId) throw new Error('sessionId required');
+      // find session
+      const sess = await Session.findOne({ sessionId });
+      if (!sess) throw new Error('session not found');
+      if (sess.expiresAt.getTime() < Date.now()) throw new Error('session expired');
+
+      const ok = await BiometricsService.validateSignature(studentUid, challenge, signature);
+      if (!ok) throw new Error('biometric_validation_failed');
+
+      const update = {
+        $setOnInsert: { sessionId: sess.sessionId, studentUid },
+        $set: { timestamp: new Date(), verified: true, method: 'biometric' },
+      };
+
+      const result = await Attendance.findOneAndUpdate(
+        { sessionId: sess.sessionId, studentUid },
+        update,
+        { new: true, upsert: true }
+      );
+      return { ok: true, verified: true, attendance: { sessionId: result.sessionId, studentUid: result.studentUid, timestamp: result.timestamp, method: result.method, verified: result.verified } };
+    }
+    // Legacy / QR path
     if (!qrToken) throw new Error('qrToken required');
     if (!studentUid) throw new Error('studentUid required');
     // Accept either direct lookup (legacy) or derived rotating token validation
@@ -49,20 +74,12 @@ class SessionsService {
       if (!valid) throw new Error('invalid qr');
     }
 
-    // Face verification prototype
+    // NOTE: Server-side face embedding verification disabled.
     const user = await User.findOne({ uid: studentUid });
     if (!user) throw new Error('user not found');
     let verified = false;
     let method = 'none';
-    if (embedding && Array.isArray(embedding) && Array.isArray(user.face?.embedding)) {
-      method = 'face-embedding';
-      const score = cosineSimilarity(embedding, user.face.embedding);
-      const threshold = parseFloat(process.env.FACE_THRESHOLD || '0.3');
-      verified = score >= threshold;
-      console.log(`Face verification: score=${score.toFixed(3)}, threshold=${threshold}, verified=${verified}`);
-    } else {
-      console.log('Face verification skipped: missing embedding or user face data');
-    }
+    console.log('Face embedding verification disabled; skipping server-side matching.');
 
     const update = {
       $setOnInsert: { sessionId: sess.sessionId, studentUid },
@@ -147,6 +164,12 @@ class SessionsService {
       session_title: session.title || 'Untitled Session',
       students: studentsWithAttendance
     };
+  }
+
+  static async getAttendanceRaw(sessionId) {
+    if (!sessionId) throw new Error('sessionId required');
+    const list = await Attendance.find({ sessionId }).sort({ timestamp: 1 }).limit(1000);
+    return { sessionId, count: list.length, attendance: list };
   }
 
   static deriveRotatingToken(qrSeed, sessionId, seconds) {

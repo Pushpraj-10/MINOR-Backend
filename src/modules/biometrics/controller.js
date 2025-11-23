@@ -1,0 +1,95 @@
+const Service = require('./service');
+const AuthService = require('../auth/service');
+
+exports.requestEnable = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    await Service.requestEnable(profile.user.uid);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.status = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const status = await Service.getStatus(profile.user.uid);
+    res.json({ status });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.registerKey = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const { publicKeyPem } = req.body || {};
+    if (!publicKeyPem) throw new Error('publicKeyPem required');
+    await Service.registerKey(profile.user.uid, publicKeyPem);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.getChallenge = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const challenge = await Service.createChallenge(profile.user.uid);
+    res.json({ challenge });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.validate = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const { challenge, signature } = req.body || {};
+    if (!challenge || !signature) throw new Error('challenge and signature required');
+    const ok = await Service.validateSignature(profile.user.uid, challenge, signature);
+    res.json({ ok });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.revoke = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const reason = req.body?.reason || 'user_requested';
+    await Service.revoke(profile.user.uid, reason);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+// Admin endpoints
+exports.adminApprove = async function (req, res) {
+  try {
+    // Expect admin to provide admin Authorization (AuthService will check role)
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    if (profile.user.role !== 'professor') throw new Error('forbidden');
+    const { userId } = req.body || {};
+    if (!userId) throw new Error('userId required');
+    await Service.adminApprove(userId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.adminRevoke = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    if (profile.user.role !== 'professor') throw new Error('forbidden');
+    const { userId, reason } = req.body || {};
+    if (!userId) throw new Error('userId required');
+    await Service.revoke(userId, reason || 'admin_revoked');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
