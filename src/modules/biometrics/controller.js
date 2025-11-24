@@ -1,5 +1,6 @@
 const Service = require('./service');
 const AuthService = require('../auth/service');
+const SessionsService = require('../sessions/service');
 
 exports.requestEnable = async function (req, res) {
   try {
@@ -27,6 +28,7 @@ exports.registerKey = async function (req, res) {
     const profile = await AuthService.getProfile(req.headers.authorization);
     const { publicKeyPem } = req.body || {};
     if (!publicKeyPem) throw new Error('publicKeyPem required');
+    console.log(`biometrics.registerKey: user=${profile.user.uid} pemLength=${(publicKeyPem||'').length}`);
     await Service.registerKey(profile.user.uid, publicKeyPem);
     res.json({ ok: true });
   } catch (err) {
@@ -72,7 +74,31 @@ exports.validate = async function (req, res) {
     const { challenge, signature } = req.body || {};
     if (!challenge || !signature) throw new Error('challenge and signature required');
     const ok = await Service.validateSignature(profile.user.uid, challenge, signature);
-    res.json({ ok });
+    // If the client included session info, attempt to mark attendance via SessionsService
+    // This allows clients to call /biometrics/validate and have the server record attendance
+    // when the signature is valid. SessionsService.checkin expects an object with
+    // { qrToken, studentUid, sessionId, method, challenge, signature }
+    let attendanceResult = null;
+    try {
+      const { qrToken, sessionId, studentUid } = req.body || {};
+      if (ok && studentUid && (sessionId || qrToken)) {
+        const checkinBody = {
+          qrToken,
+          sessionId,
+          studentUid,
+          challenge,
+          signature,
+          method: 'biometric'
+        };
+        attendanceResult = await SessionsService.checkin(checkinBody);
+      }
+    } catch (err) {
+      // If attendance marking failed, log and return ok with error detail
+      console.error('biometrics.validate: attendance marking failed', err.message);
+      return res.json({ ok, attendanceError: err.message });
+    }
+    if (attendanceResult) return res.json({ ok, attendance: attendanceResult.attendance });
+    return res.json({ ok });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

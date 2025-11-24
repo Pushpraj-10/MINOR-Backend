@@ -126,10 +126,14 @@ class BiometricsService {
   static async revoke(userId, reason) {
     const doc = await BiometricKey.findOne({ userId });
     if (doc) {
+      // Delete the stored public key so the device key is no longer trusted,
+      // but keep a record for audit with status 'revoked'.
+      doc.publicKeyPem = null;
       doc.status = 'revoked';
       doc.updatedAt = new Date();
       await doc.save();
     } else {
+      // Create a minimal revoked record for auditing
       await BiometricKey.create({ userId, status: 'revoked', createdAt: new Date(), updatedAt: new Date() });
     }
     // (Optional) log reason somewhere: prototype uses console
