@@ -73,6 +73,7 @@ exports.validate = async function (req, res) {
     const profile = await AuthService.getProfile(req.headers.authorization);
     const { challenge, signature } = req.body || {};
     if (!challenge || !signature) throw new Error('challenge and signature required');
+    console.log(`biometrics.validate: user=${profile.user.uid} challengeLen=${(challenge||'').length} signatureLen=${(signature||'').length}`);
     const ok = await Service.validateSignature(profile.user.uid, challenge, signature);
     // If the client included session info, attempt to mark attendance via SessionsService
     // This allows clients to call /biometrics/validate and have the server record attendance
@@ -100,6 +101,8 @@ exports.validate = async function (req, res) {
     if (attendanceResult) return res.json({ ok, attendance: attendanceResult.attendance });
     return res.json({ ok });
   } catch (err) {
+    console.error(`biometrics.validate.error: ${err.message}`);
+    console.error(err.stack);
     res.status(400).json({ error: err.message });
   }
 };

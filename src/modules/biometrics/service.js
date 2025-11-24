@@ -82,6 +82,7 @@ class BiometricsService {
     // Check stored challenge
     const expected = await challengeStore.get(userId);
     if (!expected || expected !== challenge) {
+      console.warn(`biometrics.validateSignature: user=${userId} challenge_mismatch expectedLen=${(expected||'').length} providedLen=${(challenge||'').length}`);
       // mismatch -> revoke
       await BiometricsService.revoke(userId, 'challenge_mismatch');
       throw new Error('challenge_mismatch');
@@ -91,17 +92,20 @@ class BiometricsService {
     const tokenHash = crypto.createHash('sha256').update(userId + '|' + challenge + '|' + signatureBase64).digest('hex');
     const used = await UsedToken.findOne({ tokenHash });
     if (used) {
+      console.warn(`biometrics.validateSignature: user=${userId} replay_detected tokenHash=${tokenHash}`);
       await BiometricsService.revoke(userId, 'replay_detected');
       throw new Error('replay_detected');
     }
 
     const keyDoc = await BiometricKey.findOne({ userId });
     if (!keyDoc || keyDoc.status !== 'approved' || !keyDoc.publicKeyPem) {
+      console.warn(`biometrics.validateSignature: user=${userId} no_key status=${keyDoc?.status} hasPem=${!!keyDoc?.publicKeyPem}`);
       throw new Error('no_key');
     }
 
     const ok = verifySignaturePem(keyDoc.publicKeyPem, challenge, signatureBase64);
     if (!ok) {
+      console.warn(`biometrics.validateSignature: user=${userId} invalid_signature signatureLen=${(signatureBase64||'').length}`);
       await BiometricsService.revoke(userId, 'invalid_signature');
       throw new Error('invalid_signature');
     }
