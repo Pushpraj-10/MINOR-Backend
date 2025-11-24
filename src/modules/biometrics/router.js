@@ -9,8 +9,10 @@ const strictLimiter = rateLimit({ windowMs: 60 * 1000, max: 8 });
 
 router.post('/request-enable', generalLimiter, controller.requestEnable);
 router.get('/status', generalLimiter, controller.status);
+router.get('/public-key', generalLimiter, controller.getPublicKey);
 router.post('/register-key', generalLimiter, controller.registerKey);
 router.get('/challenge', strictLimiter, controller.getChallenge);
+router.post('/check-key', strictLimiter, controller.checkKey);
 router.post('/validate', strictLimiter, controller.validate);
 router.post('/revoke', generalLimiter, controller.revoke);
 

@@ -56,6 +56,21 @@ class BiometricsService {
     await doc.save();
   }
 
+  static async getPublicKey(userId) {
+    const doc = await BiometricKey.findOne({ userId });
+    if (!doc) return { publicKeyPem: null, status: 'none' };
+    return { publicKeyPem: doc.publicKeyPem || null, status: doc.status || 'none', updatedAt: doc.updatedAt };
+  }
+
+  static async checkKey(userId, publicKeyPem) {
+    if (!publicKeyPem || typeof publicKeyPem !== 'string') throw new Error('publicKeyPem required');
+    const doc = await BiometricKey.findOne({ userId });
+    if (!doc || !doc.publicKeyPem) return false;
+    // Normalize whitespace for comparison
+    const normalize = (s) => (s || '').replace(/\s+/g, '').trim();
+    return normalize(doc.publicKeyPem) === normalize(publicKeyPem);
+  }
+
   static async createChallenge(userId) {
     const challenge = crypto.randomBytes(32).toString('base64');
     // challengeStore.set may be async (Redis-backed) or sync (in-memory)

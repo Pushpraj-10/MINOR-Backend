@@ -15,6 +15,7 @@ exports.status = async function (req, res) {
   try {
     const profile = await AuthService.getProfile(req.headers.authorization);
     const status = await Service.getStatus(profile.user.uid);
+    console.log(`biometrics.status: user=${profile.user.uid} -> ${status}`);
     res.json({ status });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -38,6 +39,28 @@ exports.getChallenge = async function (req, res) {
     const profile = await AuthService.getProfile(req.headers.authorization);
     const challenge = await Service.createChallenge(profile.user.uid);
     res.json({ challenge });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.getPublicKey = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const data = await Service.getPublicKey(profile.user.uid);
+    res.json(data);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.checkKey = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const { publicKeyPem } = req.body || {};
+    if (!publicKeyPem) throw new Error('publicKeyPem required');
+    const match = await Service.checkKey(profile.user.uid, publicKeyPem);
+    res.json({ match });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
