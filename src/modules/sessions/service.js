@@ -59,8 +59,19 @@ class SessionsService {
       // If session uses rotating tokens, require a valid rotating qrToken
       if (sess.qrSeed) {
         if (!qrToken) throw new Error('qrToken required');
-        const valid = SessionsService.isRotatingTokenValid(qrToken, sess.qrSeed, sess.sessionId);
-        if (!valid) throw new Error('invalid qr');
+          // For debugging: log expected rotating tokens for current window
+          try {
+            const nowSec = Math.floor(Date.now() / 1000);
+            const expect = [];
+            for (let s = nowSec - 1; s <= nowSec + 1; s++) {
+              expect.push(SessionsService.deriveRotatingToken(sess.qrSeed, sess.sessionId, s));
+            }
+            console.log(`sessions.checkin: rotating token validation: candidate=${qrToken} expected=${JSON.stringify(expect)}`);
+          } catch (e) {
+            console.warn('sessions.checkin: error computing expected tokens', e.message);
+          }
+          const valid = SessionsService.isRotatingTokenValid(qrToken, sess.qrSeed, sess.sessionId);
+          if (!valid) throw new Error('invalid qr');
       } else {
         // If legacy static qrToken exists, optionally ensure it matches when provided
         if (sess.qrToken && qrToken && sess.qrToken !== qrToken) throw new Error('invalid qr');
@@ -210,8 +221,10 @@ class SessionsService {
 
   static isRotatingTokenValid(candidate, qrSeed, sessionId) {
     const nowSec = Math.floor(Date.now() / 1000);
-    // Allow small clock skew window +/-1 second
-    for (let s = nowSec - 1; s <= nowSec + 1; s++) {
+    // Configurable clock skew window in seconds (allowing for slower biometric/sign flows)
+    const windowSec = parseInt(process.env.ROTATING_TOKEN_WINDOW_SECONDS || '5', 10);
+    // Allow clock skew/window +/- windowSec seconds
+    for (let s = nowSec - windowSec; s <= nowSec + windowSec; s++) {
       if (SessionsService.deriveRotatingToken(qrSeed, sessionId, s) === candidate) return true;
     }
     return false;
