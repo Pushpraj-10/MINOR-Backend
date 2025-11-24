@@ -11,9 +11,12 @@ exports.createSession = async function (req, res) {
 
 exports.checkin = async function (req, res) {
   try {
+    console.log('sessions.checkin: body=', JSON.stringify(req.body || {}));
     const result = await service.checkin(req.body);
     res.json(result);
   } catch (err) {
+    console.error('sessions.checkin.error:', err.message);
+    console.error(err.stack);
     res.status(400).json({ error: err.message });
   }
 };

@@ -29,6 +29,7 @@ class SessionsService {
 
   static async checkin(body) {
     const { qrToken, studentUid, embedding, sessionId, method: authMethod, challenge, signature } = body || {};
+    console.log(`sessions.checkin: qrToken=${qrToken?.slice?.(0,32) || ''} sessionId=${sessionId || ''} studentUid=${studentUid || ''} method=${authMethod || ''} challengeLen=${(challenge||'').length} signatureLen=${(signature||'').length}`);
     // Biometric path
     if (authMethod === 'biometric') {
       if (!studentUid) throw new Error('studentUid required');
