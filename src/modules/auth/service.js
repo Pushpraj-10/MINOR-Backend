@@ -25,13 +25,13 @@ async function verifyRefresh(refreshToken) {
 
 class AuthService {
   static async register(body) {
-    const { email, password, name, role = 'student', face } = body;
+    const { email, password, name, role = 'student' } = body;
     if (!email || !password) throw new Error('email and password are required');
     const existing = await User.findOne({ email });
     if (existing) throw new Error('User already exists');
     const uid = 'user_' + nanoid();
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.create({ uid, role, email, name, passwordHash, face: face || null });
+    const user = await User.create({ uid, role, email, name, passwordHash });
     return { uid: user.uid, email: user.email, role: user.role, name: user.name };
   }
 

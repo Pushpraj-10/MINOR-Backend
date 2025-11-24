@@ -32,11 +32,26 @@ class SessionsService {
     // Biometric path
     if (authMethod === 'biometric') {
       if (!studentUid) throw new Error('studentUid required');
-      if (!sessionId) throw new Error('sessionId required');
-      // find session
-      const sess = await Session.findOne({ sessionId });
+      // Allow session lookup by sessionId OR fallback to qrToken (more flexible QR formats)
+      let sess = null;
+      if (sessionId) {
+        sess = await Session.findOne({ sessionId });
+      }
+      if (!sess && qrToken) {
+        sess = await Session.findOne({ qrToken });
+      }
       if (!sess) throw new Error('session not found');
       if (sess.expiresAt.getTime() < Date.now()) throw new Error('session expired');
+
+      // If session uses rotating tokens, require a valid rotating qrToken
+      if (sess.qrSeed) {
+        if (!qrToken) throw new Error('qrToken required');
+        const valid = SessionsService.isRotatingTokenValid(qrToken, sess.qrSeed, sess.sessionId);
+        if (!valid) throw new Error('invalid qr');
+      } else {
+        // If legacy static qrToken exists, optionally ensure it matches when provided
+        if (sess.qrToken && qrToken && sess.qrToken !== qrToken) throw new Error('invalid qr');
+      }
 
       const ok = await BiometricsService.validateSignature(studentUid, challenge, signature);
       if (!ok) throw new Error('biometric_validation_failed');

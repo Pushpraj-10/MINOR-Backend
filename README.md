@@ -28,7 +28,6 @@ backend/
       - controller.js     -> Thin HTTP -> service layer
       - service.js        -> Business logic (createSession, checkin, token derivation & validation)
     - attendance/         -> Attendance-related API
-    - face/               -> Face registration / verification APIs
   - realtime/
     - index.js            -> Socket.IO namespace `/sessions` and per-session broadcasting logic
 - test/
@@ -94,7 +93,6 @@ The backend uses Mongoose models stored in `src/models/`. Here are the primary s
   - `uid` (string): unique user id used across sessions and attendance.
   - `email`, `name`: user profile fields.
   - `role` (string): `student` or `professor` used in authorization checks.
-  - `face` (object): optional face embedding data used for face verification.
   - Purpose: authentication/identity for both professors and students; `createSession` authorizes professor via JWT.
 
 - `refreshToken.js` (RefreshToken)
@@ -140,6 +138,18 @@ npm run test:qr
 ## Recommended small improvements (next steps)
 
 - Enforce strict ts validation and one-time-use tokens (server records used token timestamps with TTL). This reduces the effective acceptance window to a single second.
+  
+### Index migration
+
+After deploying the `UsedToken` model change (unique `tokenHash` + TTL on `createdAt`), run the index creation script to ensure indexes are present in your MongoDB instance:
+
+```
+cd backend
+set MONGO_URL=mongodb://127.0.0.1:27017/minor
+node scripts/create_indexes.js
+```
+
+This script calls `createIndexes()` on the `UsedToken` and `BiometricKey` models and will log index creation errors if any. Run this on staging before production to ensure index creation won't block your application.
 - Add server-side `serverSecret` into token derivation for defense-in-depth.
 - Add monitoring/logging on `qr:tick` emission failures and checkin rejections.
 

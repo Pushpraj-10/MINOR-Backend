@@ -42,13 +42,14 @@ class BiometricsService {
 
   static async createChallenge(userId) {
     const challenge = crypto.randomBytes(32).toString('base64');
-    challengeStore.set(userId, challenge, DEFAULT_TTL);
+    // challengeStore.set may be async (Redis-backed) or sync (in-memory)
+    await challengeStore.set(userId, challenge, DEFAULT_TTL);
     return challenge;
   }
 
   static async validateSignature(userId, challenge, signatureBase64) {
     // Check stored challenge
-    const expected = challengeStore.get(userId);
+    const expected = await challengeStore.get(userId);
     if (!expected || expected !== challenge) {
       // mismatch -> revoke
       await BiometricsService.revoke(userId, 'challenge_mismatch');
@@ -87,7 +88,7 @@ class BiometricsService {
       throw err;
     }
     // Consume the challenge so it can't be re-used
-    challengeStore.delete(userId);
+    await challengeStore.delete(userId);
     return true;
   }
 

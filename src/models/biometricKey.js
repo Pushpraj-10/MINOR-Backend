@@ -8,6 +8,7 @@ const BiometricKeySchema = new mongoose.Schema({
   updatedAt: { type: Date, default: null },
 });
 
-BiometricKeySchema.index({ userId: 1 }, { unique: true });
+// Explicit unique index to ensure DB-level uniqueness
+BiometricKeySchema.index({ userId: 1 }, { unique: true, background: true });
 
 module.exports = mongoose.model('BiometricKey', BiometricKeySchema);
