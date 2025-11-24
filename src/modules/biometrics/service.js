@@ -33,9 +33,25 @@ class BiometricsService {
   }
 
   static async registerKey(userId, publicKeyPem) {
-    const doc = await BiometricKey.findOne({ userId });
-    if (!doc || doc.status !== 'approved') throw new Error('not_approved');
+    if (!publicKeyPem || typeof publicKeyPem !== 'string') throw new Error('publicKeyPem required');
+
+    // Upsert the biometric key record. When a device submits its OS-backed public key
+    // it should be stored and marked 'pending' for admin approval (if not already approved).
+    let doc = await BiometricKey.findOne({ userId });
+    if (!doc) {
+      await BiometricKey.create({
+        userId,
+        publicKeyPem,
+        status: 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      return;
+    }
+
+    // Update existing record: store new public key and set to pending unless already approved
     doc.publicKeyPem = publicKeyPem;
+    if (doc.status !== 'approved') doc.status = 'pending';
     doc.updatedAt = new Date();
     await doc.save();
   }
