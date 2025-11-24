@@ -28,8 +28,20 @@ class SessionsService {
   }
 
   static async checkin(body) {
-    const { qrToken, studentUid, embedding, sessionId, method: authMethod, challenge, signature } = body || {};
-    console.log(`sessions.checkin: qrToken=${qrToken?.slice?.(0,32) || ''} sessionId=${sessionId || ''} studentUid=${studentUid || ''} method=${authMethod || ''} challengeLen=${(challenge||'').length} signatureLen=${(signature||'').length}`);
+    let { qrToken, studentUid, embedding, sessionId, method: authMethod, challenge, signature } = body || {};
+    console.log(`sessions.checkin: qrToken=${qrToken?.slice?.(0,64) || ''} sessionId=${sessionId || ''} studentUid=${studentUid || ''} method=${authMethod || ''} challengeLen=${(challenge||'').length} signatureLen=${(signature||'').length}`);
+
+    // Accept composite qrToken values produced by the client in the form "<sessionId>:<token>"
+    // If client sent a composite token and didn't provide sessionId separately, split it.
+    if ((!sessionId || sessionId === '') && typeof qrToken === 'string' && qrToken.includes(':')) {
+      const parts = qrToken.split(':');
+      if (parts.length >= 2 && parts[0].startsWith('sess_')) {
+        sessionId = parts[0];
+        // The rest after first colon is the actual rotating token
+        qrToken = parts.slice(1).join(':');
+        console.log(`sessions.checkin: parsed composite token -> sessionId=${sessionId} qrToken=${qrToken?.slice?.(0,32) || ''}`);
+      }
+    }
     // Biometric path
     if (authMethod === 'biometric') {
       if (!studentUid) throw new Error('studentUid required');
