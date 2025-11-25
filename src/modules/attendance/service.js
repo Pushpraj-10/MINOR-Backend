@@ -4,9 +4,19 @@ class AttendanceService {
   // Return whether a public key is registered/approved and if so create a challenge
   static async checkKey(userId) {
     const pk = await BiometricsService.getPublicKey(userId);
+    // Log what we received from biometrics service for debugging
+    try {
+      const storedLen = (pk['publicKeyPem'] || '').length;
+      const storedPreview = (pk['publicKeyPem'] || '').replace(/\r?\n/g, '\\n').slice(0, 200);
+      console.log(`attendance.checkKey: user=${userId} pkStatus=${pk.status} storedPemLen=${storedLen} storedPemPreview=${storedPreview}`);
+    } catch (err) {
+      console.warn('attendance.checkKey: failed to log pk preview', err);
+    }
+
     const publicKeyRegistered = !!pk.publicKeyPem && pk.status === 'approved';
     if (publicKeyRegistered) {
       const challenge = await BiometricsService.createChallenge(userId);
+      console.log(`attendance.checkKey: user=${userId} issuing challengeLen=${(challenge||'').length}`);
       return { publicKeyRegistered: true, challenge };
     }
     return { publicKeyRegistered: false };

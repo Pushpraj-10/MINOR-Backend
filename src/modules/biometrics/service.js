@@ -66,7 +66,16 @@ class BiometricsService {
 
   static async getPublicKey(userId) {
     const doc = await BiometricKey.findOne({ userId });
-    if (!doc) return { publicKeyPem: null, status: 'none' };
+    if (!doc) {
+      console.log(`biometrics.getPublicKey: user=${userId} no doc`);
+      return { publicKeyPem: null, status: 'none' };
+    }
+    try {
+      const preview = (doc.publicKeyPem || '').replace(/\r?\n/g, '\\n').slice(0, 200);
+      console.log(`biometrics.getPublicKey: user=${userId} status=${doc.status} storedPemLen=${(doc.publicKeyPem||'').length} storedPemPreview=${preview}`);
+    } catch (logErr) {
+      console.warn('biometrics.getPublicKey: failed to log preview', logErr);
+    }
     return { publicKeyPem: doc.publicKeyPem || null, status: doc.status || 'none', updatedAt: doc.updatedAt };
   }
 
