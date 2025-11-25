@@ -73,10 +73,27 @@ class BiometricsService {
   static async checkKey(userId, publicKeyPem) {
     if (!publicKeyPem || typeof publicKeyPem !== 'string') throw new Error('publicKeyPem required');
     const doc = await BiometricKey.findOne({ userId });
-    if (!doc || !doc.publicKeyPem) return false;
+    console.log(`biometrics.checkKey: user=${userId} incomingPemLen=${(publicKeyPem||'').length}`);
+    if (publicKeyPem) {
+      const preview = publicKeyPem.replace(/\r?\n/g, '\\n').slice(0, 200);
+      console.log(`biometrics.checkKey: user=${userId} incomingPemPreview=${preview}`);
+    }
+    if (!doc || !doc.publicKeyPem) {
+      console.log(`biometrics.checkKey: user=${userId} no stored key`);
+      return false;
+    }
     // Normalize whitespace for comparison
     const normalize = (s) => (s || '').replace(/\s+/g, '').trim();
-    return normalize(doc.publicKeyPem) === normalize(publicKeyPem);
+    const stored = doc.publicKeyPem || '';
+    console.log(`biometrics.checkKey: user=${userId} storedPemLen=${stored.length}`);
+    const storedPreview = stored.replace(/\r?\n/g, '\\n').slice(0, 200);
+    console.log(`biometrics.checkKey: user=${userId} storedPemPreview=${storedPreview}`);
+    const nStored = normalize(stored);
+    const nIncoming = normalize(publicKeyPem);
+    console.log(`biometrics.checkKey: user=${userId} normalizedStoredLen=${nStored.length} normalizedIncomingLen=${nIncoming.length}`);
+    const match = nStored === nIncoming;
+    console.log(`biometrics.checkKey: user=${userId} match=${match}`);
+    return match;
   }
 
   static async createChallenge(userId) {
@@ -119,6 +136,18 @@ class BiometricsService {
     if (!keyDoc || keyDoc.status !== 'approved' || !keyDoc.publicKeyPem) {
       console.warn(`biometrics.validateSignature: user=${userId} no_key status=${keyDoc?.status} hasPem=${!!keyDoc?.publicKeyPem}`);
       throw new Error('no_key');
+    }
+
+    // Log signature and stored key previews for debugging
+    try {
+      console.log(`biometrics.validateSignature: user=${userId} signatureLen=${(signatureBase64||'').length}`);
+      if (signatureBase64) {
+        console.log(`biometrics.validateSignature: user=${userId} signaturePreview=${signatureBase64.slice(0, 80)}`);
+      }
+      const sp = (keyDoc.publicKeyPem || '').replace(/\r?\n/g, '\\n').slice(0, 200);
+      console.log(`biometrics.validateSignature: user=${userId} storedPemPreview=${sp}`);
+    } catch (logErr) {
+      console.warn('biometrics.validateSignature: failed to log signature/key preview', logErr);
     }
 
     const ok = verifySignaturePem(keyDoc.publicKeyPem, challenge, signatureBase64);
