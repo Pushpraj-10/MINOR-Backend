@@ -6,6 +6,15 @@ exports.checkKey = async function (req, res) {
   try {
     const profile = await AuthService.getProfile(req.headers.authorization);
     const data = await Service.checkKey(profile.user.uid);
+    try {
+      // Log the response we will send back for debugging (preview challenge/publicKey if present)
+      const preview = { publicKeyRegistered: !!data.publicKeyRegistered };
+      if (data.challenge) preview.challengePreview = (data.challenge || '').slice(0, 120);
+      if (data.publicKeyPem) preview.publicKeyPreview = (data.publicKeyPem || '').replace(/\r?\n/g, '\\n').slice(0, 200);
+      console.log(`attendance.controller.checkKey: user=${profile.user.uid} responsePreview=${JSON.stringify(preview)}`);
+    } catch (logErr) {
+      console.warn('attendance.controller.checkKey: failed to log response preview', logErr);
+    }
     res.json(data);
   } catch (err) {
     res.status(400).json({ error: err.message });
