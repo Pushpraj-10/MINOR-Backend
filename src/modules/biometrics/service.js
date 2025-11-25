@@ -27,7 +27,7 @@ class BiometricsService {
   static async adminApprove(userId) {
     const doc = await BiometricKey.findOneAndUpdate(
       { userId },
-      { $set: { status: 'approved', updatedAt: new Date() } },
+      { $set: { status: 'approved', updatedAt: new Date(), failedAttempts: 0, lastFailedAt: null } },
       { upsert: true, new: true }
     );
     return doc;
@@ -40,10 +40,13 @@ class BiometricsService {
     // it should be stored and marked 'pending' for admin approval (if not already approved).
     let doc = await BiometricKey.findOne({ userId });
     if (!doc) {
+      console.log(`biometrics.registerKey: creating key for user=${userId} pemLen=${(publicKeyPem||'').length}`);
       await BiometricKey.create({
         userId,
         publicKeyPem,
         status: 'pending',
+        failedAttempts: 0,
+        lastFailedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -51,7 +54,11 @@ class BiometricsService {
     }
 
     // Update existing record: store new public key and set to pending unless already approved
+    console.log(`biometrics.registerKey: updating key for user=${userId} oldStatus=${doc.status} pemLen=${(publicKeyPem||'').length}`);
     doc.publicKeyPem = publicKeyPem;
+    // Reset failure counters when a new key is registered
+    doc.failedAttempts = 0;
+    doc.lastFailedAt = null;
     if (doc.status !== 'approved') doc.status = 'pending';
     doc.updatedAt = new Date();
     await doc.save();
@@ -108,6 +115,7 @@ class BiometricsService {
     }
 
     const keyDoc = await BiometricKey.findOne({ userId });
+    console.log(`biometrics.validateSignature: user=${userId} keyStatus=${keyDoc?.status} failedAttempts=${keyDoc?.failedAttempts || 0}`);
     if (!keyDoc || keyDoc.status !== 'approved' || !keyDoc.publicKeyPem) {
       console.warn(`biometrics.validateSignature: user=${userId} no_key status=${keyDoc?.status} hasPem=${!!keyDoc?.publicKeyPem}`);
       throw new Error('no_key');
@@ -120,7 +128,9 @@ class BiometricsService {
       keyDoc.failedAttempts = (keyDoc.failedAttempts || 0) + 1;
       keyDoc.lastFailedAt = new Date();
       await keyDoc.save();
+      console.warn(`biometrics.validateSignature: user=${userId} invalid_signature failedAttempts=${keyDoc.failedAttempts}`);
       if (keyDoc.failedAttempts >= FAILED_ATTEMPTS_THRESHOLD) {
+        console.warn(`biometrics.validateSignature: user=${userId} reached threshold -> revoking`);
         await BiometricsService.revoke(userId, 'invalid_signature');
       }
       throw new Error('invalid_signature');
