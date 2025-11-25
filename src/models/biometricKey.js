@@ -11,7 +11,7 @@ const BiometricKeySchema = new mongoose.Schema({
   updatedAt: { type: Date, default: null },
 });
 
-// Explicit unique index to ensure DB-level uniqueness
-BiometricKeySchema.index({ userId: 1 }, { unique: true, background: true });
+// Note: `userId` is declared `unique: true` in the schema above.
+// Avoid adding a duplicate index here to prevent Mongoose duplicate-index warnings.
 
 module.exports = mongoose.model('BiometricKey', BiometricKeySchema);

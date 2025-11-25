@@ -8,7 +8,7 @@ const UsedTokenSchema = new mongoose.Schema({
 
 // TTL index to expire used tokens (replay protection)
 UsedTokenSchema.index({ createdAt: 1 }, { expireAfterSeconds: 120 });
-// Explicit unique index on tokenHash to ensure DB-level uniqueness across deployments
-UsedTokenSchema.index({ tokenHash: 1 }, { unique: true, background: true });
+// Note: `tokenHash` is declared `unique: true` in the schema above.
+// Avoid adding a duplicate index here to prevent Mongoose duplicate-index warnings.
 
 module.exports = mongoose.model('UsedToken', UsedTokenSchema);
