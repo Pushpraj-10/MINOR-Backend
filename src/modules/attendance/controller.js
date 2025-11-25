@@ -39,12 +39,23 @@ exports.verifyChallenge = async function (req, res) {
     const { challenge, signature } = req.body || {};
     if (!challenge || !signature) throw new Error('challenge and signature required');
 
+    // Log incoming challenge/signature preview for debugging (do not log full signature)
+    try {
+      const chalPreview = String(challenge).slice(0, 120);
+      const sigPreview = String(signature).slice(0, 80);
+      console.log(`attendance.controller.verifyChallenge: user=${profile.user.uid} challengePreview=${chalPreview} signaturePreview=${sigPreview}`);
+    } catch (logErr) {
+      console.warn('attendance.controller.verifyChallenge: failed to log incoming preview', logErr);
+    }
+
     try {
       const result = await Service.verifyChallenge(profile.user.uid, challenge, signature);
       if (result && result.biometricChanged === true) return res.json({ biometricChanged: true });
       if (result && result.verified === true) return res.json({ verified: true });
       return res.status(400).json({ verified: false, reason: result && result.reason });
     } catch (vErr) {
+      // Ensure any thrown errors are logged with detail
+      console.error(`attendance.controller.verifyChallenge: verification threw for user=${profile.user.uid} err=${vErr && vErr.message}`);
       throw vErr;
     }
   } catch (err) {
