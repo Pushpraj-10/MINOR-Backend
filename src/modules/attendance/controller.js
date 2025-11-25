@@ -31,16 +31,11 @@ exports.verifyChallenge = async function (req, res) {
     if (!challenge || !signature) throw new Error('challenge and signature required');
 
     try {
-      const ok = await Service.verifyChallenge(profile.user.uid, challenge, signature);
-      if (ok) return res.json({ verified: true });
-      // fallback
-      return res.status(400).json({ verified: false });
+      const result = await Service.verifyChallenge(profile.user.uid, challenge, signature);
+      if (result && result.biometricChanged === true) return res.json({ biometricChanged: true });
+      if (result && result.verified === true) return res.json({ verified: true });
+      return res.status(400).json({ verified: false, reason: result && result.reason });
     } catch (vErr) {
-      // If verification failed due to biometric/signature mismatch, service may throw
-      // with specific code; return biometricChanged = true so client can react.
-      if (vErr && vErr.message === 'invalid_signature' || vErr.message === 'challenge_mismatch') {
-        return res.json({ biometricChanged: true });
-      }
       throw vErr;
     }
   } catch (err) {

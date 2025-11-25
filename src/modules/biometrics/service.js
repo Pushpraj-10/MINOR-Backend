@@ -5,6 +5,7 @@ const challengeStore = require('./challengeStore');
 const { verifySignaturePem } = require('./utils');
 
 const DEFAULT_TTL = parseInt(process.env.BIOMETRIC_CHALLENGE_TTL || '60', 10);
+const FAILED_ATTEMPTS_THRESHOLD = parseInt(process.env.BIOMETRIC_FAILED_ATTEMPTS_THRESHOLD || '3', 10);
 
 class BiometricsService {
   static async requestEnable(userId) {
@@ -83,8 +84,16 @@ class BiometricsService {
     const expected = await challengeStore.get(userId);
     if (!expected || expected !== challenge) {
       console.warn(`biometrics.validateSignature: user=${userId} challenge_mismatch expectedLen=${(expected||'').length} providedLen=${(challenge||'').length}`);
-      // mismatch -> revoke
-      await BiometricsService.revoke(userId, 'challenge_mismatch');
+      // Increment failure counter and only revoke after threshold
+      const doc = await BiometricKey.findOne({ userId });
+      if (doc) {
+        doc.failedAttempts = (doc.failedAttempts || 0) + 1;
+        doc.lastFailedAt = new Date();
+        await doc.save();
+        if (doc.failedAttempts >= FAILED_ATTEMPTS_THRESHOLD) {
+          await BiometricsService.revoke(userId, 'challenge_mismatch');
+        }
+      }
       throw new Error('challenge_mismatch');
     }
 
@@ -93,6 +102,7 @@ class BiometricsService {
     const used = await UsedToken.findOne({ tokenHash });
     if (used) {
       console.warn(`biometrics.validateSignature: user=${userId} replay_detected tokenHash=${tokenHash}`);
+      // Replay is severe: treat as immediate revoke
       await BiometricsService.revoke(userId, 'replay_detected');
       throw new Error('replay_detected');
     }
@@ -106,8 +116,22 @@ class BiometricsService {
     const ok = verifySignaturePem(keyDoc.publicKeyPem, challenge, signatureBase64);
     if (!ok) {
       console.warn(`biometrics.validateSignature: user=${userId} invalid_signature signatureLen=${(signatureBase64||'').length}`);
-      await BiometricsService.revoke(userId, 'invalid_signature');
+      // Increment failure counter and revoke only after threshold to avoid noisy re-registration
+      keyDoc.failedAttempts = (keyDoc.failedAttempts || 0) + 1;
+      keyDoc.lastFailedAt = new Date();
+      await keyDoc.save();
+      if (keyDoc.failedAttempts >= FAILED_ATTEMPTS_THRESHOLD) {
+        await BiometricsService.revoke(userId, 'invalid_signature');
+      }
       throw new Error('invalid_signature');
+    }
+
+    // On success, reset failure counter
+    if (keyDoc.failedAttempts && keyDoc.failedAttempts > 0) {
+      keyDoc.failedAttempts = 0;
+      keyDoc.lastFailedAt = null;
+      keyDoc.updatedAt = new Date();
+      await keyDoc.save();
     }
 
     // Mark token as used

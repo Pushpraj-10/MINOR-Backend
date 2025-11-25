@@ -18,21 +18,21 @@ class AttendanceService {
   }
 
   static async verifyChallenge(userId, challenge, signature) {
-    // Try to validate using biometrics service. If invalid, ensure key is deleted.
+    // Try to validate using biometrics service. We catch validation errors and
+    // only report biometricChanged if the stored key was actually revoked.
     try {
       const ok = await BiometricsService.validateSignature(userId, challenge, signature);
-      return ok;
+      return { verified: ok };
     } catch (err) {
-      // If verification fails due to signature mismatch or challenge mismatch,
-      // delete stored key to force re-registration and report biometricChanged.
       const msg = (err && err.message) ? err.message : '';
-      if (msg === 'invalid_signature' || msg === 'challenge_mismatch' || msg === 'replay_detected') {
-        await BiometricsService.revoke(userId, 'verify_failed_delete');
-        // throw a specialized error to controller
-        const e = new Error(msg);
-        throw e;
+      // Check the current key status to see if it was revoked
+      const keyDoc = await require('../../models/biometricKey').findOne({ userId });
+      const isRevoked = keyDoc && keyDoc.status === 'revoked';
+      if (isRevoked) {
+        return { verified: false, biometricChanged: true };
       }
-      throw err;
+      // Not revoked yet: return failure but do not signal biometricChanged
+      return { verified: false, reason: msg };
     }
   }
 }
