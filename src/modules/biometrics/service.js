@@ -116,7 +116,14 @@ class BiometricsService {
     // Check stored challenge
     const expected = await challengeStore.get(userId);
     if (!expected || expected !== challenge) {
-      console.warn(`biometrics.validateSignature: user=${userId} challenge_mismatch expectedLen=${(expected||'').length} providedLen=${(challenge||'').length}`);
+      try {
+        const expectedPreview = String(expected || '').slice(0, 120);
+        const providedPreview = String(challenge || '').slice(0, 120);
+        const expectedHex = Buffer.from(String(expected || ''), 'base64').slice(0, 12).toString('hex');
+        console.warn(`biometrics.validateSignature: user=${userId} challenge_mismatch expectedLen=${(expected||'').length} providedLen=${(challenge||'').length} expectedPreview=${expectedPreview} providedPreview=${providedPreview} expectedHexPrefix=${expectedHex}`);
+      } catch (logErr) {
+        console.warn(`biometrics.validateSignature: user=${userId} challenge_mismatch unable to log previews: ${logErr}`);
+      }
       // Increment failure counter and only revoke after threshold
       const doc = await BiometricKey.findOne({ userId });
       if (doc) {
@@ -160,6 +167,11 @@ class BiometricsService {
     }
 
     const ok = verifySignaturePem(keyDoc.publicKeyPem, challenge, signatureBase64);
+    if (ok) {
+      console.log(`biometrics.validateSignature: user=${userId} signature_valid success resetting failedAttempts`);
+    } else {
+      console.warn(`biometrics.validateSignature: user=${userId} signature verification returned false`);
+    }
     if (!ok) {
       console.warn(`biometrics.validateSignature: user=${userId} invalid_signature signatureLen=${(signatureBase64||'').length}`);
       // Increment failure counter and revoke only after threshold to avoid noisy re-registration

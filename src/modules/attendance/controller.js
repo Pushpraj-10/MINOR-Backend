@@ -50,6 +50,14 @@ exports.verifyChallenge = async function (req, res) {
 
     try {
       const result = await Service.verifyChallenge(profile.user.uid, challenge, signature);
+      try {
+        const rp = { verified: !!result.verified };
+        if (result.biometricChanged) rp.biometricChanged = true;
+        if (result.reason) rp.reason = String(result.reason).slice(0, 200);
+        console.log(`attendance.controller.verifyChallenge: user=${profile.user.uid} resultPreview=${JSON.stringify(rp)}`);
+      } catch (logErr) {
+        console.warn('attendance.controller.verifyChallenge: failed to log result preview', logErr);
+      }
       if (result && result.biometricChanged === true) return res.json({ biometricChanged: true });
       if (result && result.verified === true) return res.json({ verified: true });
       return res.status(400).json({ verified: false, reason: result && result.reason });
