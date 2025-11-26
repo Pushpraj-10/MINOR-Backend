@@ -147,6 +147,7 @@ class BiometricsService {
   }
 
   static async getPublicKey(userId) {
+    // Single read; if missing, log once for debugging (no retry)
     const doc = await BiometricKey.findOne({ userId });
     if (!doc) {
       console.log(`biometrics.getPublicKey: user=${userId} no doc`);
@@ -158,10 +159,28 @@ class BiometricsService {
     } catch (logErr) {
       console.warn('biometrics.getPublicKey: failed to log preview', logErr);
     }
+    // Ensure publicKeyHash is available for older records that may lack it
+    let publicKeyHash = doc.publicKeyHash || null;
+    if (!publicKeyHash && doc.publicKeyPem) {
+      try {
+        const normalize = (s) => (s || '').replace(/\s+/g, '').trim();
+        publicKeyHash = crypto.createHash('sha256').update(normalize(doc.publicKeyPem)).digest('hex');
+        // persist the computed hash to avoid future recompute
+        try {
+          doc.publicKeyHash = publicKeyHash;
+          doc.updatedAt = new Date();
+          // Save asynchronously but don't block caller on failures
+          doc.save().catch(() => {});
+        } catch (_) {}
+      } catch (err) {
+        console.warn(`biometrics.getPublicKey: failed to compute publicKeyHash for user=${userId}`, err);
+      }
+    }
+
     return {
       publicKeyPem: doc.publicKeyPem || null,
       status: doc.status || 'none',
-      publicKeyHash: doc.publicKeyHash || null,
+      publicKeyHash: publicKeyHash,
       pendingPublicKeyHash: doc.pendingPublicKeyHash || null,
       updatedAt: doc.updatedAt,
     };
