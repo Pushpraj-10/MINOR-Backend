@@ -58,8 +58,42 @@ exports.verifyChallenge = async function (req, res) {
       } catch (logErr) {
         console.warn('attendance.controller.verifyChallenge: failed to log result preview', logErr);
       }
+
+      // If verification indicates biometric changed, inform client
       if (result && result.biometricChanged === true) return res.json({ biometricChanged: true });
-      if (result && result.verified === true) return res.json({ verified: true });
+
+      // If verified, optionally mark attendance server-side when client provided session info
+      if (result && result.verified === true) {
+        // If client supplied sessionId or qrToken (and optionally studentUid), attempt to mark present
+        try {
+          const { qrToken, sessionId, studentUid } = req.body || {};
+          if (studentUid || sessionId || qrToken) {
+            const checkinBody = {
+              qrToken,
+              sessionId,
+              studentUid: studentUid || profile.user.uid,
+              challenge,
+              signature,
+              method: 'biometric',
+            };
+            try {
+              const attendanceResult = await SessionsService.checkin(checkinBody);
+              // Return verification + attendance info
+              return res.json({ verified: true, attendance: attendanceResult.attendance });
+            } catch (attErr) {
+              console.error('attendance.controller.verifyChallenge: attendance marking failed', attErr && attErr.message);
+              // Return verified true but include attendance error info
+              return res.json({ verified: true, attendanceError: attErr && attErr.message });
+            }
+          }
+        } catch (attOuterErr) {
+          console.warn('attendance.controller.verifyChallenge: unexpected error while attempting to mark attendance', attOuterErr);
+        }
+
+        // If no session info provided, just return verified
+        return res.json({ verified: true });
+      }
+
       return res.status(400).json({ verified: false, reason: result && result.reason });
     } catch (vErr) {
       // Ensure any thrown errors are logged with detail
