@@ -4,6 +4,10 @@ const SessionsService = require('../sessions/service');
 
 exports.checkKey = async function (req, res) {
   try {
+    try {
+      const authPresent = !!req.headers && !!req.headers.authorization;
+      console.log(`attendance.controller.checkKey: incoming request authPresent=${authPresent}`);
+    } catch (_) {}
     const profile = await AuthService.getProfile(req.headers.authorization);
     const data = await Service.checkKey(profile.user.uid);
     try {
