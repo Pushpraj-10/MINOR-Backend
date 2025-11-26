@@ -50,6 +50,8 @@ class BiometricsService {
     doc.lastFailedAt = null;
     doc.updatedAt = new Date();
     await doc.save();
+    // Clear any ephemeral challenge for this user after admin approval
+    try { await challengeStore.delete(userId); } catch (_) {}
     return doc;
   }
 
@@ -79,6 +81,8 @@ class BiometricsService {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+      // Clear any ephemeral challenge for this user to avoid stale challenges
+      try { await challengeStore.delete(userId); } catch (_) {}
       return;
     }
 
@@ -113,6 +117,8 @@ class BiometricsService {
       doc.updatedAt = new Date();
       console.log(`biometrics.registerKey: user=${userId} created pendingPublicKeyPem pemLen=${(publicKeyPem||'').length} (existing approved key preserved)`);
       await doc.save();
+      // Clear any ephemeral challenge for this user to avoid stale challenges
+      try { await challengeStore.delete(userId); } catch (_) {}
       return;
     }
 
@@ -136,6 +142,8 @@ class BiometricsService {
     doc.pendingCreatedAt = null;
     doc.updatedAt = new Date();
     await doc.save();
+    // Clear any ephemeral challenge for this user to avoid stale challenges
+    try { await challengeStore.delete(userId); } catch (_) {}
   }
 
   static async getPublicKey(userId) {
@@ -304,6 +312,8 @@ class BiometricsService {
       // Create a minimal revoked record for auditing
       await BiometricKey.create({ userId, status: 'revoked', createdAt: new Date(), updatedAt: new Date() });
     }
+    // Clear ephemeral challenge for this user immediately
+    try { await challengeStore.delete(userId); } catch (_) {}
     // (Optional) log reason somewhere: prototype uses console
     console.warn(`Biometrics revoked for ${userId}: ${reason}`);
   }

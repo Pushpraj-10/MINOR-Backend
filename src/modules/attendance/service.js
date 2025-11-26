@@ -1,4 +1,5 @@
 const BiometricsService = require('../biometrics/service');
+const challengeStore = require('../biometrics/challengeStore');
 
 class AttendanceService {
   // Return whether a public key is registered/approved and if so create a challenge
@@ -43,9 +44,21 @@ class AttendanceService {
       // Check the current key status to see if it was revoked
       const keyDoc = await require('../../models/biometricKey').findOne({ userId });
       const isRevoked = keyDoc && keyDoc.status === 'revoked';
+      // If the key is already revoked, ensure any ephemeral challenge is cleared and inform client
       if (isRevoked) {
+        try { await challengeStore.delete(userId); } catch (_) {}
         return { verified: false, biometricChanged: true };
       }
+
+      // If we saw a challenge mismatch or other severe condition, proactively revoke and clear challenge
+      if (msg === 'challenge_mismatch' || msg === 'replay_detected' || msg === 'no_key') {
+        try {
+          await BiometricsService.revoke(userId, `auto_revoke:${msg}`);
+        } catch (_) {}
+        try { await challengeStore.delete(userId); } catch (_) {}
+        return { verified: false, biometricChanged: true };
+      }
+
       // Not revoked yet: return failure but do not signal biometricChanged
       return { verified: false, reason: msg };
     }
