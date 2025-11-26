@@ -12,19 +12,9 @@ class AttendanceService {
     } catch (err) {
       console.warn('attendance.checkKey: failed to log pk preview', err);
     }
-    const publicKeyRegistered = !!pk.publicKeyPem;
-    // Compute a stable hash of the normalized public key so clients can compare without receiving the PEM
-    let publicKeyHash = null;
-    try {
-      if (pk.publicKeyPem) {
-        const normalize = (s) => (s || '').replace(/\s+/g, '').trim();
-        const normalized = normalize(pk.publicKeyPem);
-        const crypto = require('crypto');
-        publicKeyHash = crypto.createHash('sha256').update(normalized).digest('hex');
-      }
-    } catch (err) {
-      console.warn('attendance.checkKey: failed to compute publicKeyHash', err);
-    }
+    const publicKeyRegistered = !!pk.publicKeyPem || !!pk.pendingPublicKeyPem;
+    // Prefer the stored publicKeyHash (active), fall back to pendingPublicKeyHash if present
+    let publicKeyHash = pk.publicKeyHash || pk.pendingPublicKeyHash || null;
 
     // Only issue a challenge when the key exists and has been approved by admin
     if (publicKeyRegistered && pk.status === 'approved') {

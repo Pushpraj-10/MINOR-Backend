@@ -3,6 +3,13 @@ const mongoose = require('mongoose');
 const BiometricKeySchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
   publicKeyPem: { type: String, required: false },
+  // Precomputed SHA-256 hex of normalized `publicKeyPem` to avoid sending PEM to clients
+  publicKeyHash: { type: String, required: false },
+  // When a new key is submitted while an approved key exists, keep it here
+  pendingPublicKeyPem: { type: String, required: false },
+  // Precomputed SHA-256 hex of normalized pending public key
+  pendingPublicKeyHash: { type: String, required: false },
+  pendingCreatedAt: { type: Date, default: null },
   status: { type: String, enum: ['none', 'pending', 'approved', 'revoked'], default: 'none' },
   // Track consecutive failed validation attempts to avoid immediate revocation
   failedAttempts: { type: Number, required: true, default: 0 },

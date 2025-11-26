@@ -25,11 +25,31 @@ class BiometricsService {
   }
 
   static async adminApprove(userId) {
-    const doc = await BiometricKey.findOneAndUpdate(
-      { userId },
-      { $set: { status: 'approved', updatedAt: new Date(), failedAttempts: 0, lastFailedAt: null } },
-      { upsert: true, new: true }
-    );
+    // Move any pendingPublicKeyPem into the active publicKeyPem on admin approval.
+    let doc = await BiometricKey.findOne({ userId });
+    if (!doc) {
+      // Create approved record without a public key (admin can approve later when a key exists)
+      doc = await BiometricKey.create({ userId, status: 'approved', failedAttempts: 0, lastFailedAt: null, createdAt: new Date(), updatedAt: new Date() });
+      console.log(`biometrics.adminApprove: user=${userId} created approved record (no pem)`);
+      return doc;
+    }
+
+    // If there is a pending key, promote it to the active publicKeyPem
+    if (doc.pendingPublicKeyPem) {
+      console.log(`biometrics.adminApprove: user=${userId} promoting pending key to approved pemLen=${(doc.pendingPublicKeyPem||'').length}`);
+      doc.publicKeyPem = doc.pendingPublicKeyPem;
+      doc.publicKeyHash = doc.pendingPublicKeyHash || null;
+      doc.pendingPublicKeyPem = null;
+      doc.pendingPublicKeyHash = null;
+      doc.pendingCreatedAt = null;
+    } else {
+      console.log(`biometrics.adminApprove: user=${userId} approving existing key pemLen=${(doc.publicKeyPem||'').length}`);
+    }
+    doc.status = 'approved';
+    doc.failedAttempts = 0;
+    doc.lastFailedAt = null;
+    doc.updatedAt = new Date();
+    await doc.save();
     return doc;
   }
 
@@ -41,9 +61,18 @@ class BiometricsService {
     let doc = await BiometricKey.findOne({ userId });
     if (!doc) {
       console.log(`biometrics.registerKey: creating key for user=${userId} pemLen=${(publicKeyPem||'').length}`);
+      // compute hash
+      const normalize = (s) => (s || '').replace(/\s+/g, '').trim();
+      let publicKeyHash = null;
+      try {
+        publicKeyHash = crypto.createHash('sha256').update(normalize(publicKeyPem)).digest('hex');
+      } catch (err) {
+        console.warn(`biometrics.registerKey: user=${userId} failed to compute publicKeyHash`, err);
+      }
       await BiometricKey.create({
         userId,
         publicKeyPem,
+        publicKeyHash,
         status: 'pending',
         failedAttempts: 0,
         lastFailedAt: null,
@@ -53,13 +82,58 @@ class BiometricsService {
       return;
     }
 
-    // Update existing record: store new public key and set to pending unless already approved
+    // If there is an approved key, do not overwrite it immediately. Instead, store the incoming key
+    // as a pendingPublicKeyPem so admin can review and promote it.
+    const normalize = (s) => (s || '').replace(/\s+/g, '').trim();
+    const stored = doc.publicKeyPem || '';
+    const nStored = normalize(stored);
+    const nIncoming = normalize(publicKeyPem);
+
+    if (doc.status === 'approved') {
+      if (nStored === nIncoming) {
+        console.log(`biometrics.registerKey: user=${userId} submitted same approved key -> no-op`);
+        return;
+      }
+      // If an identical pending already exists, no-op
+      const nPending = normalize(doc.pendingPublicKeyPem || '');
+      if (nPending === nIncoming) {
+        console.log(`biometrics.registerKey: user=${userId} pending key already exists -> no-op`);
+        return;
+      }
+      // Otherwise store as pending and do not overwrite the active approved key
+      let pendingHash = null;
+      try {
+        pendingHash = crypto.createHash('sha256').update(nIncoming).digest('hex');
+      } catch (err) {
+        console.warn(`biometrics.registerKey: user=${userId} failed to compute pendingPublicKeyHash`, err);
+      }
+      doc.pendingPublicKeyPem = publicKeyPem;
+      doc.pendingPublicKeyHash = pendingHash;
+      doc.pendingCreatedAt = new Date();
+      doc.updatedAt = new Date();
+      console.log(`biometrics.registerKey: user=${userId} created pendingPublicKeyPem pemLen=${(publicKeyPem||'').length} (existing approved key preserved)`);
+      await doc.save();
+      return;
+    }
+
+    // Update existing record for non-approved states: overwrite publicKeyPem and set to pending
     console.log(`biometrics.registerKey: updating key for user=${userId} oldStatus=${doc.status} pemLen=${(publicKeyPem||'').length}`);
+    // compute hash for stored key
+    let publicKeyHash = null;
+    try {
+      publicKeyHash = crypto.createHash('sha256').update(nIncoming).digest('hex');
+    } catch (err) {
+      console.warn(`biometrics.registerKey: user=${userId} failed to compute publicKeyHash`, err);
+    }
     doc.publicKeyPem = publicKeyPem;
+    doc.publicKeyHash = publicKeyHash;
     // Reset failure counters when a new key is registered
     doc.failedAttempts = 0;
     doc.lastFailedAt = null;
-    if (doc.status !== 'approved') doc.status = 'pending';
+    doc.status = 'pending';
+    doc.pendingPublicKeyPem = null;
+    doc.pendingPublicKeyHash = null;
+    doc.pendingCreatedAt = null;
     doc.updatedAt = new Date();
     await doc.save();
   }
@@ -76,7 +150,13 @@ class BiometricsService {
     } catch (logErr) {
       console.warn('biometrics.getPublicKey: failed to log preview', logErr);
     }
-    return { publicKeyPem: doc.publicKeyPem || null, status: doc.status || 'none', updatedAt: doc.updatedAt };
+    return {
+      publicKeyPem: doc.publicKeyPem || null,
+      status: doc.status || 'none',
+      publicKeyHash: doc.publicKeyHash || null,
+      pendingPublicKeyHash: doc.pendingPublicKeyHash || null,
+      updatedAt: doc.updatedAt,
+    };
   }
 
   static async checkKey(userId, publicKeyPem) {
