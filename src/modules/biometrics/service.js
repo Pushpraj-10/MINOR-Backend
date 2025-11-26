@@ -315,6 +315,10 @@ class BiometricsService {
     }
     // Consume the challenge so it can't be re-used
     await challengeStore.delete(userId);
+    // Final verification log (explicit marker for successful signature validation)
+    try {
+      console.log(`biometrics.finalVerification: user=${userId} verified=true challengeLen=${(challenge||'').length} signatureLen=${(signatureBase64||'').length}`);
+    } catch (_) {}
     return true;
   }
 

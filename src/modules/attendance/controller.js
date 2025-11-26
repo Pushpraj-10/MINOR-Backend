@@ -59,6 +59,11 @@ exports.verifyChallenge = async function (req, res) {
         console.warn('attendance.controller.verifyChallenge: failed to log result preview', logErr);
       }
 
+      // Explicit final-verification marker in controller for tracing end-to-end
+      if (result && result.verified === true) {
+        try { console.log(`attendance.controller.finalVerification: user=${profile.user.uid} verified=true`); } catch (_) {}
+      }
+
       // If verification indicates biometric changed, inform client
       if (result && result.biometricChanged === true) return res.json({ biometricChanged: true });
 
