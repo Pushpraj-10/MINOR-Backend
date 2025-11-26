@@ -208,6 +208,7 @@ class BiometricsService {
     const nIncoming = normalize(publicKeyPem);
     console.log(`biometrics.checkKey: user=${userId} normalizedStoredLen=${nStored.length} normalizedIncomingLen=${nIncoming.length}`);
     const match = nStored === nIncoming;
+    console.log(`Stored key ${nStored} and incoming key ${nIncoming} match: ${match}`);
     console.log(`biometrics.checkKey: user=${userId} match=${match}`);
     return match;
   }
