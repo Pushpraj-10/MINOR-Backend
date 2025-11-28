@@ -1,4 +1,4 @@
-const service = require('./service');
+const service = require('./sessions.service');
 
 exports.createSession = async function (req, res) {
   try {

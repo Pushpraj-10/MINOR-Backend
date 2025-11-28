@@ -1,6 +1,6 @@
-const Service = require('./service');
-const AuthService = require('../auth/service');
-const SessionsService = require('../sessions/service');
+const Service = require('./biometrics.service');
+const AuthService = require('../auth/auth.service');
+const SessionsService = require('../sessions/sessions.service');
 
 exports.requestEnable = async function (req, res) {
   try {
@@ -52,6 +52,44 @@ exports.getPublicKey = async function (req, res) {
     const data = await Service.getPublicKey(profile.user.uid);
     res.json(data);
   } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+// Combined endpoint for status check + challenge creation
+exports.checkKeyAndChallenge = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const userId = profile.user.uid;
+    
+    // Get key status and data
+    const keyData = await Service.getPublicKey(userId);
+    const status = keyData.status || 'none';
+    
+    console.log(`biometrics.checkKeyAndChallenge: user=${userId} status=${status}`);
+    
+    const response = {
+      status,
+      publicKeyHash: keyData.publicKeyHash || null,
+      pendingPublicKeyHash: keyData.pendingPublicKeyHash || null,
+      updatedAt: keyData.updatedAt || null
+    };
+    
+    // Only create challenge if status is approved and key exists
+    if (status === 'approved' && keyData.publicKeyPem) {
+      try {
+        const challenge = await Service.createChallenge(userId);
+        response.challenge = challenge;
+        console.log(`biometrics.checkKeyAndChallenge: user=${userId} challenge created`);
+      } catch (challengeErr) {
+        console.warn(`biometrics.checkKeyAndChallenge: user=${userId} challenge creation failed: ${challengeErr.message}`);
+        // Don't fail the whole request, just omit challenge
+      }
+    }
+    
+    res.json(response);
+  } catch (err) {
+    console.error(`biometrics.checkKeyAndChallenge: error=${err.message}`);
     res.status(400).json({ error: err.message });
   }
 };

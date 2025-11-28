@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const Session = require('../../models/session');
 const Attendance = require('../../models/attendance');
 const User = require('../../models/user');
-const BiometricsService = require('../../modules/biometrics/service');
+const BiometricsService = require('../biometrics/biometrics.service');
 
 
 function authzProfessor(authorization) {
@@ -229,20 +229,6 @@ class SessionsService {
     }
     return false;
   }
-}
-
-function cosineSimilarity(a, b) {
-  const n = Math.min(a.length, b.length);
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < n; i++) {
-    const ai = a[i];
-    const bi = b[i];
-    dot += ai * bi;
-    na += ai * ai;
-    nb += bi * bi;
-  }
-  const denom = Math.sqrt(na) * Math.sqrt(nb) || 1;
-  return dot / denom;
 }
 
 module.exports = SessionsService;

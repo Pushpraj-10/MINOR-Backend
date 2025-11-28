@@ -1,103 +1,126 @@
-// ChallengeStore: supports an in-memory TTL-backed store (for single-instance dev)
-// and an optional Redis-backed store for multi-instance production.
+// ChallengeStore: Simple in-memory TTL-backed store with proper cleanup
+// Redis support completely removed to eliminate race conditions
 
-const USE_REDIS = String(process.env.USE_REDIS_CHALLENGE_STORE || '').toLowerCase() === 'true';
-
-// In-memory fallback (same behavior as previous implementation)
-class MemoryChallengeStore {
+class ChallengeStore {
   constructor() {
-    this.map = new Map();
+    this.challenges = new Map();
+    this.cleanupInterval = setInterval(() => this._cleanup(), 30000); // Cleanup every 30s
   }
 
-  set(userId, challenge, ttlSec = 60) {
-    this.delete(userId);
-    const expiresAt = Date.now() + ttlSec * 1000;
-    const timeout = setTimeout(() => this.delete(userId), ttlSec * 1000 + 500);
-    this.map.set(userId, { challenge, expiresAt, timeout });
+  /**
+   * Store a challenge with TTL
+   * @param {string} userId - User identifier
+   * @param {string} challenge - Challenge string
+   * @param {number} ttlSec - Time to live in seconds (default: 60)
+   */
+  async set(userId, challenge, ttlSec = 60) {
+    // Clear any existing challenge for this user
+    await this.delete(userId);
+    
+    const expiresAt = Date.now() + (ttlSec * 1000);
+    const entry = {
+      challenge,
+      expiresAt,
+      used: false
+    };
+    
+    this.challenges.set(userId, entry);
+    console.log(`challengeStore.set: user=${userId} ttl=${ttlSec}s expiresAt=${new Date(expiresAt).toISOString()}`);
   }
 
-  get(userId) {
-    const entry = this.map.get(userId);
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAt) {
-      this.delete(userId);
+  /**
+   * Get and mark challenge as used (single-use)
+   * @param {string} userId - User identifier
+   * @returns {string|null} - Challenge string or null if not found/expired/used
+   */
+  async get(userId) {
+    const entry = this.challenges.get(userId);
+    if (!entry) {
+      console.log(`challengeStore.get: user=${userId} no_entry`);
       return null;
     }
+
+    // Check if expired
+    if (Date.now() > entry.expiresAt) {
+      console.log(`challengeStore.get: user=${userId} expired`);
+      this.challenges.delete(userId);
+      return null;
+    }
+
+    // Check if already used
+    if (entry.used) {
+      console.log(`challengeStore.get: user=${userId} already_used`);
+      return null;
+    }
+
+    // Mark as used for single-use enforcement
+    entry.used = true;
+    console.log(`challengeStore.get: user=${userId} success`);
     return entry.challenge;
   }
 
-  delete(userId) {
-    const entry = this.map.get(userId);
-    if (entry) {
-      clearTimeout(entry.timeout);
-      this.map.delete(userId);
+  /**
+   * Delete challenge for user
+   * @param {string} userId - User identifier
+   */
+  async delete(userId) {
+    const deleted = this.challenges.delete(userId);
+    if (deleted) {
+      console.log(`challengeStore.delete: user=${userId} deleted`);
     }
   }
-}
 
-if (!USE_REDIS) {
-  module.exports = new MemoryChallengeStore();
-} else {
-  // Redis-backed implementation
-  let Redis;
-  try {
-    Redis = require('ioredis');
-  } catch (err) {
-    console.warn('ioredis not installed; falling back to memory ChallengeStore');
-    module.exports = new MemoryChallengeStore();
-    return;
+  /**
+   * Internal cleanup of expired challenges
+   */
+  _cleanup() {
+    const now = Date.now();
+    let cleaned = 0;
+    
+    for (const [userId, entry] of this.challenges.entries()) {
+      if (now > entry.expiresAt) {
+        this.challenges.delete(userId);
+        cleaned++;
+      }
+    }
+    
+    if (cleaned > 0) {
+      console.log(`challengeStore._cleanup: removed ${cleaned} expired challenges`);
+    }
   }
 
-  const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-  const redis = new Redis(redisUrl);
+  /**
+   * Get stats for monitoring
+   */
+  getStats() {
+    const now = Date.now();
+    let active = 0;
+    let expired = 0;
+    let used = 0;
 
-  // Prefix keys to avoid collisions
-  const prefix = 'biom:challenge:';
-
-  const store = {
-    async set(userId, challenge, ttlSec = 60) {
-      try {
-        await redis.set(prefix + userId, challenge, 'EX', Math.max(1, Math.floor(ttlSec)));
-      } catch (e) {
-        console.warn('Redis set failed, falling back to no-op:', e);
+    for (const entry of this.challenges.values()) {
+      if (now > entry.expiresAt) {
+        expired++;
+      } else if (entry.used) {
+        used++;
+      } else {
+        active++;
       }
-    },
+    }
 
-    async get(userId) {
-      try {
-        const v = await redis.get(prefix + userId);
-        return v === null ? null : v;
-      } catch (e) {
-        console.warn('Redis get failed:', e);
-        return null;
-      }
-    },
+    return { active, expired, used, total: this.challenges.size };
+  }
 
-    async delete(userId) {
-      try {
-        await redis.del(prefix + userId);
-      } catch (e) {
-        console.warn('Redis del failed:', e);
-      }
-    },
-  };
-
-  // Ensure the exported API matches the memory implementation (sync methods expected by call sites).
-  // We'll provide thin wrappers that return synchronous-like values where possible.
-  module.exports = {
-    set(userId, challenge, ttlSec = 60) {
-      // fire-and-forget
-      store.set(userId, challenge, ttlSec).catch(() => {});
-    },
-
-    get(userId) {
-      // Return a Promise-like value if caller awaits; but to keep compatibility, try a blocking read is not possible.
-      // Call sites in this repo use `await challengeStore.get(...)`, so returning a Promise is acceptable.
-      return store.get(userId);
-    },
-
-    delete(userId) {
-      store.delete(userId).catch(() => {});
-    },
-  };
+  /**
+   * Cleanup on shutdown
+   */
+  destroy() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+    this.challenges.clear();
+  }
 }
+
+// Export singleton instance
+module.exports = new ChallengeStore();

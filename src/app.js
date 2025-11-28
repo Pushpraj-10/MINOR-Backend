@@ -37,16 +37,24 @@ app.get('/api/env', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-connectToDatabase()
-  .then(() => {
+async function startServer() {
+  try {
+    await connectToDatabase();
     // Initialize Socket.IO and real-time namespaces
     initRealtime(server);
 
     server.listen(PORT, () => {
       console.log('Server listening on port ' + PORT);
     });
-  })
-  .catch((err) => {
+  } catch (err) {
     console.error('Failed to connect to MongoDB:', err.message);
     process.exit(1);
-  });
+  }
+}
+
+// If run directly, start the server. If required (tests), export app and startServer.
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { app, startServer };

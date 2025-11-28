@@ -1,5 +1,5 @@
 const express = require('express');
-const controller = require('./controller');
+const controller = require('./sessions.controller');
 const rateLimit = require('express-rate-limit');
 
 const router = express.Router();

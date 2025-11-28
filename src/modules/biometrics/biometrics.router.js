@@ -1,5 +1,5 @@
 const express = require('express');
-const controller = require('./controller');
+const controller = require('./biometrics.controller');
 const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
@@ -12,6 +12,7 @@ router.get('/status', generalLimiter, controller.status);
 router.get('/public-key', generalLimiter, controller.getPublicKey);
 router.post('/register-key', generalLimiter, controller.registerKey);
 router.get('/challenge', strictLimiter, controller.getChallenge);
+router.get('/check', strictLimiter, controller.checkKeyAndChallenge); // New combined endpoint
 router.post('/check-key', strictLimiter, controller.checkKey);
 router.post('/validate', strictLimiter, controller.validate);
 router.post('/revoke', generalLimiter, controller.revoke);

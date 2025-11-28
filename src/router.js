@@ -2,10 +2,10 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 
 // Sub-routers
-const authRouter = require('./modules/auth/router');
-const sessionsRouter = require('./modules/sessions/router');
-const biometricsRouter = require('./modules/biometrics/router');
-const attendanceRouter = require('./modules/attendance/router');
+const authRouter = require('./modules/auth/auth.router');
+const sessionsRouter = require('./modules/sessions/sessions.router');
+const biometricsRouter = require('./modules/biometrics/biometrics.router');
+const attendanceRouter = require('./modules/attendance/attendance.router');
 
 const router = express.Router();
 

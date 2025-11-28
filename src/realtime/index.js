@@ -1,5 +1,5 @@
 const { Server } = require('socket.io');
-const SessionsService = require('../modules/sessions/service');
+const SessionsService = require('../modules/sessions/sessions.service');
 const Session = require('../models/session');
 
 /**

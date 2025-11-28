@@ -2,10 +2,10 @@ const crypto = require('crypto');
 const BiometricKey = require('../../models/biometricKey');
 const UsedToken = require('../../models/usedToken');
 const challengeStore = require('./challengeStore');
-const { verifySignaturePem } = require('./utils');
+const { verifySignaturePem } = require('./biometrics.utils');
 
 const DEFAULT_TTL = parseInt(process.env.BIOMETRIC_CHALLENGE_TTL || '60', 10);
-const FAILED_ATTEMPTS_THRESHOLD = parseInt(process.env.BIOMETRIC_FAILED_ATTEMPTS_THRESHOLD || '3', 10);
+const FAILED_ATTEMPTS_THRESHOLD = parseInt(process.env.BIOMETRIC_FAILED_ATTEMPTS_THRESHOLD || '5', 10);
 
 class BiometricsService {
   static async requestEnable(userId) {
@@ -20,8 +20,15 @@ class BiometricsService {
   }
 
   static async getStatus(userId) {
-    const doc = await BiometricKey.findOne({ userId });
-    return doc ? doc.status : 'none';
+    try {
+      const doc = await BiometricKey.findOne({ userId });
+      const status = doc ? doc.status : 'none';
+      console.log(`biometrics.getStatus: user=${userId} status=${status} hasDoc=${!!doc}`);
+      return status;
+    } catch (err) {
+      console.error(`biometrics.getStatus: user=${userId} error=${err.message}`);
+      return 'none';
+    }
   }
 
   static async adminApprove(userId) {
@@ -214,34 +221,26 @@ class BiometricsService {
   }
 
   static async createChallenge(userId) {
+    // Only create challenge if user has an approved key
+    const keyDoc = await BiometricKey.findOne({ userId });
+    if (!keyDoc || keyDoc.status !== 'approved' || !keyDoc.publicKeyPem) {
+      throw new Error(`Cannot create challenge: user=${userId} status=${keyDoc?.status || 'none'} hasPem=${!!keyDoc?.publicKeyPem}`);
+    }
+
     const challenge = crypto.randomBytes(32).toString('base64');
-    // challengeStore.set may be async (Redis-backed) or sync (in-memory)
     await challengeStore.set(userId, challenge, DEFAULT_TTL);
+    console.log(`biometrics.createChallenge: user=${userId} challengeLen=${challenge.length}`);
     return challenge;
   }
 
   static async validateSignature(userId, challenge, signatureBase64) {
-    // Check stored challenge
+    // Check stored challenge (this also marks it as used)
     const expected = await challengeStore.get(userId);
     if (!expected || expected !== challenge) {
-      try {
-        const expectedPreview = String(expected || '').slice(0, 120);
-        const providedPreview = String(challenge || '').slice(0, 120);
-        const expectedHex = Buffer.from(String(expected || ''), 'base64').slice(0, 12).toString('hex');
-        console.warn(`biometrics.validateSignature: user=${userId} challenge_mismatch expectedLen=${(expected||'').length} providedLen=${(challenge||'').length} expectedPreview=${expectedPreview} providedPreview=${providedPreview} expectedHexPrefix=${expectedHex}`);
-      } catch (logErr) {
-        console.warn(`biometrics.validateSignature: user=${userId} challenge_mismatch unable to log previews: ${logErr}`);
-      }
-      // Increment failure counter and only revoke after threshold
-      const doc = await BiometricKey.findOne({ userId });
-      if (doc) {
-        doc.failedAttempts = (doc.failedAttempts || 0) + 1;
-        doc.lastFailedAt = new Date();
-        await doc.save();
-        if (doc.failedAttempts >= FAILED_ATTEMPTS_THRESHOLD) {
-          await BiometricsService.revoke(userId, 'challenge_mismatch');
-        }
-      }
+      console.warn(`biometrics.validateSignature: user=${userId} challenge_mismatch expected=${!!expected} match=${expected === challenge}`);
+      
+      // DO NOT increment failure counter for challenge mismatch - this is often a timing issue
+      // Only log the mismatch and throw error
       throw new Error('challenge_mismatch');
     }
 
@@ -282,14 +281,17 @@ class BiometricsService {
     }
     if (!ok) {
       console.warn(`biometrics.validateSignature: user=${userId} invalid_signature signatureLen=${(signatureBase64||'').length}`);
+      
       // Increment failure counter and revoke only after threshold to avoid noisy re-registration
       keyDoc.failedAttempts = (keyDoc.failedAttempts || 0) + 1;
       keyDoc.lastFailedAt = new Date();
       await keyDoc.save();
-      console.warn(`biometrics.validateSignature: user=${userId} invalid_signature failedAttempts=${keyDoc.failedAttempts}`);
+      console.warn(`biometrics.validateSignature: user=${userId} invalid_signature failedAttempts=${keyDoc.failedAttempts}/${FAILED_ATTEMPTS_THRESHOLD}`);
+      
+      // Only revoke after multiple failures to avoid false positives
       if (keyDoc.failedAttempts >= FAILED_ATTEMPTS_THRESHOLD) {
-        console.warn(`biometrics.validateSignature: user=${userId} reached threshold -> revoking`);
-        await BiometricsService.revoke(userId, 'invalid_signature');
+        console.warn(`biometrics.validateSignature: user=${userId} reached failure threshold -> revoking`);
+        await BiometricsService.revoke(userId, `invalid_signature_threshold_${keyDoc.failedAttempts}`);
       }
       throw new Error('invalid_signature');
     }
@@ -314,8 +316,7 @@ class BiometricsService {
       }
       throw err;
     }
-    // Consume the challenge so it can't be re-used
-    await challengeStore.delete(userId);
+    // Challenge was already consumed by challengeStore.get() - no need to delete again
     // Final verification log (explicit marker for successful signature validation)
     try {
       console.log(`biometrics.finalVerification: user=${userId} verified=true challengeLen=${(challenge||'').length} signatureLen=${(signatureBase64||'').length}`);
