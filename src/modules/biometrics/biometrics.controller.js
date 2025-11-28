@@ -56,6 +56,29 @@ exports.getPublicKey = async function (req, res) {
   }
 };
 
+// Simple existence check: returns whether a biometric key record exists for the user
+exports.exists = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const data = await Service.getPublicKey(profile.user.uid);
+    const present = !!(data && (data.publicKeyPem || data.pendingPublicKeyPem || data.publicKeyHash || data.pendingPublicKeyHash));
+    res.json({ key_present: present });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+// Approval check: returns whether the stored key is approved by admin
+exports.approval = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const status = await Service.getStatus(profile.user.uid);
+    res.json({ approved: status === 'approved', status });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
 // Combined endpoint for status check + challenge creation
 exports.checkKeyAndChallenge = async function (req, res) {
   try {

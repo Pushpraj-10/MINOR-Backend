@@ -9,6 +9,9 @@ const strictLimiter = rateLimit({ windowMs: 60 * 1000, max: 8 });
 
 router.post('/request-enable', generalLimiter, controller.requestEnable);
 router.get('/status', generalLimiter, controller.status);
+// Lightweight endpoints for simplified auth flow
+router.get('/exists', generalLimiter, controller.exists);
+router.get('/approval', generalLimiter, controller.approval);
 router.get('/public-key', generalLimiter, controller.getPublicKey);
 router.post('/register-key', generalLimiter, controller.registerKey);
 router.get('/challenge', strictLimiter, controller.getChallenge);
