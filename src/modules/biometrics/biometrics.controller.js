@@ -183,3 +183,14 @@ exports.adminRevoke = async function (req, res) {
     res.status(400).json({ error: err.message });
   }
 };
+
+exports.deleteKey = async function(req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const userId = profile.user.uid;
+    await require('./biometrics.service').deleteKey(userId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};

@@ -342,6 +342,23 @@ class BiometricsService {
     // (Optional) log reason somewhere: prototype uses console
     console.warn(`Biometrics revoked for ${userId}: ${reason}`);
   }
+
+  static async deleteKey(userId) {
+    const BiometricKey = require('../../models/biometricKey');
+    // For safety, clear key material and mark as deleted rather than fully remove for audit
+    const keyDoc = await BiometricKey.findOne({ userId });
+    if (keyDoc) {
+      keyDoc.publicKeyPem = null;
+      keyDoc.publicKeyHash = null;
+      keyDoc.pendingPublicKeyPem = null;
+      keyDoc.pendingPublicKeyHash = null;
+      keyDoc.status = 'deleted';
+      keyDoc.updatedAt = new Date();
+      await keyDoc.save();
+    }
+    // Optionally, to hard-delete:
+    // await BiometricKey.deleteOne({ userId });
+  }
 }
 
 module.exports = BiometricsService;

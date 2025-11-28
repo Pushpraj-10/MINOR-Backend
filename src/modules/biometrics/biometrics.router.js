@@ -12,10 +12,11 @@ router.get('/status', generalLimiter, controller.status);
 router.get('/public-key', generalLimiter, controller.getPublicKey);
 router.post('/register-key', generalLimiter, controller.registerKey);
 router.get('/challenge', strictLimiter, controller.getChallenge);
-router.get('/check', strictLimiter, controller.checkKeyAndChallenge); // New combined endpoint
+router.get('/check', strictLimiter, controller.checkKeyAndChallenge);
 router.post('/check-key', strictLimiter, controller.checkKey);
 router.post('/validate', strictLimiter, controller.validate);
 router.post('/revoke', generalLimiter, controller.revoke);
+router.delete('/delete-key', generalLimiter, controller.deleteKey);
 
 // Admin endpoints (mounted under /api/biometrics/admin/...)
 router.post('/admin/approve', generalLimiter, controller.adminApprove);
