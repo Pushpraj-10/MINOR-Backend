@@ -77,6 +77,13 @@ class SessionsService {
     }
 
     // Default QR flow: mark present (not verified by biometric)
+    // If an attendance record already exists and is verified (e.g. by biometric),
+    // do not overwrite it with a QR-based unverified entry.
+    const existing = await Attendance.findOne({ sessionId: sess.sessionId, studentUid });
+    if (existing && existing.verified === true) {
+      return { ok: true, verified: true, attendance: { sessionId: existing.sessionId, studentUid: existing.studentUid, timestamp: existing.timestamp, method: existing.method, verified: existing.verified } };
+    }
+
     const user = await User.findOne({ uid: studentUid });
     if (!user) throw new Error('user not found');
 
