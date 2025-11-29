@@ -10,11 +10,17 @@ const attendanceRouter = require('./modules/attendance/attendance.router');
 const router = express.Router();
 
 const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
+
+// Auth
 router.use('/auth', authLimiter, authRouter);
+
+// Sessions
 router.use('/sessions', sessionsRouter);
+
+// Biometrics (key mgmt, approval, challenge, validation)
 router.use('/biometrics', biometricsRouter);
+
+// Attendance (verifyChallenge + markPresent only)
 router.use('/attendance', attendanceRouter);
 
 module.exports = router;
-
-

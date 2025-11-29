@@ -56,7 +56,6 @@ exports.getPublicKey = async function (req, res) {
   }
 };
 
-// Simple existence check: returns whether a biometric key record exists for the user
 exports.exists = async function (req, res) {
   try {
     const profile = await AuthService.getProfile(req.headers.authorization);
@@ -68,7 +67,6 @@ exports.exists = async function (req, res) {
   }
 };
 
-// Approval check: returns whether the stored key is approved by admin
 exports.approval = async function (req, res) {
   try {
     const profile = await AuthService.getProfile(req.headers.authorization);
@@ -79,37 +77,31 @@ exports.approval = async function (req, res) {
   }
 };
 
-// Combined endpoint for status check + challenge creation
+// GET /biometrics/check → { status, challenge?, publicKeyHash?, pendingPublicKeyHash?, updatedAt? }
 exports.checkKeyAndChallenge = async function (req, res) {
   try {
     const profile = await AuthService.getProfile(req.headers.authorization);
     const userId = profile.user.uid;
-    
-    // Get key status and data
+
     const keyData = await Service.getPublicKey(userId);
     const status = keyData.status || 'none';
-    
-    console.log(`biometrics.checkKeyAndChallenge: user=${userId} status=${status}`);
-    
+
     const response = {
       status,
       publicKeyHash: keyData.publicKeyHash || null,
       pendingPublicKeyHash: keyData.pendingPublicKeyHash || null,
       updatedAt: keyData.updatedAt || null
     };
-    
-    // Only create challenge if status is approved and key exists
+
     if (status === 'approved' && keyData.publicKeyPem) {
       try {
         const challenge = await Service.createChallenge(userId);
         response.challenge = challenge;
-        console.log(`biometrics.checkKeyAndChallenge: user=${userId} challenge created`);
       } catch (challengeErr) {
         console.warn(`biometrics.checkKeyAndChallenge: user=${userId} challenge creation failed: ${challengeErr.message}`);
-        // Don't fail the whole request, just omit challenge
       }
     }
-    
+
     res.json(response);
   } catch (err) {
     console.error(`biometrics.checkKeyAndChallenge: error=${err.message}`);
@@ -134,20 +126,17 @@ exports.validate = async function (req, res) {
     const profile = await AuthService.getProfile(req.headers.authorization);
     const { challenge, signature } = req.body || {};
     if (!challenge || !signature) throw new Error('challenge and signature required');
-    console.log(`biometrics.validate: user=${profile.user.uid} challengeLen=${(challenge||'').length} signatureLen=${(signature||'').length}`);
+
     const ok = await Service.validateSignature(profile.user.uid, challenge, signature);
-    // If the client included session info, attempt to mark attendance via SessionsService
-    // This allows clients to call /biometrics/validate and have the server record attendance
-    // when the signature is valid. SessionsService.checkin expects an object with
-    // { qrToken, studentUid, sessionId, method, challenge, signature }
+
     let attendanceResult = null;
     try {
       const { qrToken, sessionId, studentUid } = req.body || {};
-      if (ok && studentUid && (sessionId || qrToken)) {
+      if (ok && (sessionId || qrToken)) {
         const checkinBody = {
           qrToken,
           sessionId,
-          studentUid,
+          studentUid: studentUid || profile.user.uid,
           challenge,
           signature,
           method: 'biometric'
@@ -155,15 +144,14 @@ exports.validate = async function (req, res) {
         attendanceResult = await SessionsService.checkin(checkinBody);
       }
     } catch (err) {
-      // If attendance marking failed, log and return ok with error detail
       console.error('biometrics.validate: attendance marking failed', err.message);
       return res.json({ ok, attendanceError: err.message });
     }
+
     if (attendanceResult) return res.json({ ok, attendance: attendanceResult.attendance });
     return res.json({ ok });
   } catch (err) {
     console.error(`biometrics.validate.error: ${err.message}`);
-    console.error(err.stack);
     res.status(400).json({ error: err.message });
   }
 };
@@ -179,10 +167,8 @@ exports.revoke = async function (req, res) {
   }
 };
 
-// Admin endpoints
 exports.adminApprove = async function (req, res) {
   try {
-    // Expect admin to provide admin Authorization (AuthService will check role)
     const profile = await AuthService.getProfile(req.headers.authorization);
     if (profile.user.role !== 'professor') throw new Error('forbidden');
     const { userId } = req.body || {};
@@ -210,8 +196,7 @@ exports.adminRevoke = async function (req, res) {
 exports.deleteKey = async function(req, res) {
   try {
     const profile = await AuthService.getProfile(req.headers.authorization);
-    const userId = profile.user.uid;
-    await require('./biometrics.service').deleteKey(userId);
+    await require('./biometrics.service').deleteKey(profile.user.uid);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
