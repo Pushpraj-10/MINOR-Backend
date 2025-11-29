@@ -28,55 +28,38 @@ class SessionsService {
   }
 
   static async checkin(body) {
-    let { qrToken, studentUid, embedding, sessionId, method: authMethod, challenge, signature } = body || {};
-    console.log(`sessions.checkin: qrToken=${qrToken?.slice?.(0,64) || ''} sessionId=${sessionId || ''} studentUid=${studentUid || ''} method=${authMethod || ''} challengeLen=${(challenge||'').length} signatureLen=${(signature||'').length}`);
+    let { qrToken, studentUid, sessionId, method: authMethod, challenge, signature } = body || {};
 
-    // Accept composite qrToken values produced by the client in the form "<sessionId>:<token>"
-    // If client sent a composite token and didn't provide sessionId separately, split it.
+    // Accept composite qrToken values in the form "<sessionId>:<token>"
     if ((!sessionId || sessionId === '') && typeof qrToken === 'string' && qrToken.includes(':')) {
       const parts = qrToken.split(':');
       if (parts.length >= 2 && parts[0].startsWith('sess_')) {
         sessionId = parts[0];
-        // The rest after first colon is the actual rotating token
         qrToken = parts.slice(1).join(':');
-        console.log(`sessions.checkin: parsed composite token -> sessionId=${sessionId} qrToken=${qrToken?.slice?.(0,32) || ''}`);
       }
     }
-    // Biometric path
+
+    if (!studentUid) throw new Error('studentUid required');
+
+    // Lookup session by sessionId or fallback to qrToken
+    let sess = null;
+    if (sessionId) sess = await Session.findOne({ sessionId });
+    if (!sess && qrToken) sess = await Session.findOne({ qrToken });
+    if (!sess) throw new Error('session not found');
+    if (sess.expiresAt.getTime() < Date.now()) throw new Error('session expired');
+
+    // If session uses rotating tokens, validate candidate
+    if (sess.qrSeed) {
+      if (!qrToken) throw new Error('qrToken required');
+      const valid = SessionsService.isRotatingTokenValid(qrToken, sess.qrSeed, sess.sessionId);
+      if (!valid) throw new Error('invalid qr');
+    } else if (sess.qrToken && qrToken && sess.qrToken !== qrToken) {
+      throw new Error('invalid qr');
+    }
+
+    // Biometric flow: require challenge+signature and verify via BiometricsService
     if (authMethod === 'biometric') {
-      if (!studentUid) throw new Error('studentUid required');
-      // Allow session lookup by sessionId OR fallback to qrToken (more flexible QR formats)
-      let sess = null;
-      if (sessionId) {
-        sess = await Session.findOne({ sessionId });
-      }
-      if (!sess && qrToken) {
-        sess = await Session.findOne({ qrToken });
-      }
-      if (!sess) throw new Error('session not found');
-      if (sess.expiresAt.getTime() < Date.now()) throw new Error('session expired');
-
-      // If session uses rotating tokens, require a valid rotating qrToken
-      if (sess.qrSeed) {
-        if (!qrToken) throw new Error('qrToken required');
-          // For debugging: log expected rotating tokens for current window
-          try {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const expect = [];
-            for (let s = nowSec - 1; s <= nowSec + 1; s++) {
-              expect.push(SessionsService.deriveRotatingToken(sess.qrSeed, sess.sessionId, s));
-            }
-            console.log(`sessions.checkin: rotating token validation: candidate=${qrToken} expected=${JSON.stringify(expect)}`);
-          } catch (e) {
-            console.warn('sessions.checkin: error computing expected tokens', e.message);
-          }
-          const valid = SessionsService.isRotatingTokenValid(qrToken, sess.qrSeed, sess.sessionId);
-          if (!valid) throw new Error('invalid qr');
-      } else {
-        // If legacy static qrToken exists, optionally ensure it matches when provided
-        if (sess.qrToken && qrToken && sess.qrToken !== qrToken) throw new Error('invalid qr');
-      }
-
+      if (!challenge || !signature) throw new Error('challenge and signature required');
       const ok = await BiometricsService.validateSignature(studentUid, challenge, signature);
       if (!ok) throw new Error('biometric_validation_failed');
 
@@ -92,37 +75,14 @@ class SessionsService {
       );
       return { ok: true, verified: true, attendance: { sessionId: result.sessionId, studentUid: result.studentUid, timestamp: result.timestamp, method: result.method, verified: result.verified } };
     }
-    // Legacy / QR path
-    if (!qrToken) throw new Error('qrToken required');
-    if (!studentUid) throw new Error('studentUid required');
-    // Accept either direct lookup (legacy) or derived rotating token validation
-    let sess = null;
-    if (sessionId) {
-      sess = await Session.findOne({ sessionId });
-    }
-    if (!sess) {
-      // fallback legacy static token flow
-      sess = await Session.findOne({ qrToken });
-    }
-    if (!sess) throw new Error('session not found');
-    if (sess.expiresAt.getTime() < Date.now()) throw new Error('session expired');
 
-    // Validate rotating token if qrSeed exists
-    if (sess.qrSeed) {
-      const valid = this.isRotatingTokenValid(qrToken, sess.qrSeed, sess.sessionId);
-      if (!valid) throw new Error('invalid qr');
-    }
-
-    // NOTE: Server-side face embedding verification disabled.
+    // Default QR flow: mark present (not verified by biometric)
     const user = await User.findOne({ uid: studentUid });
     if (!user) throw new Error('user not found');
-    let verified = false;
-    let method = 'none';
-    console.log('Face embedding verification disabled; skipping server-side matching.');
 
     const update = {
       $setOnInsert: { sessionId: sess.sessionId, studentUid },
-      $set: { timestamp: new Date(), verified, method },
+      $set: { timestamp: new Date(), verified: false, method: 'qr' },
     };
 
     const result = await Attendance.findOneAndUpdate(
@@ -130,8 +90,7 @@ class SessionsService {
       update,
       { new: true, upsert: true }
     );
-    console.log(`Attendance saved: sessionId=${result.sessionId}, studentUid=${result.studentUid}, verified=${result.verified}, method=${result.method}`);
-    return { ok: true, verified, attendance: { sessionId: result.sessionId, studentUid: result.studentUid, timestamp: result.timestamp, method: result.method, verified: result.verified } };
+    return { ok: true, verified: result.verified, attendance: { sessionId: result.sessionId, studentUid: result.studentUid, timestamp: result.timestamp, method: result.method, verified: result.verified } };
   }
 
   static async getProfessorSessions(authorization) {
