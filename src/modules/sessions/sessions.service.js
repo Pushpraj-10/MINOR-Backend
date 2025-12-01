@@ -188,7 +188,7 @@ class SessionsService {
   static isRotatingTokenValid(candidate, qrSeed, sessionId) {
     const nowSec = Math.floor(Date.now() / 1000);
     // Configurable clock skew window in seconds (allowing for slower biometric/sign flows)
-    const windowSec = parseInt(process.env.ROTATING_TOKEN_WINDOW_SECONDS || '5', 10);
+    const windowSec = parseInt(process.env.ROTATING_TOKEN_WINDOW_SECONDS || '10', 10);
     // Allow clock skew/window +/- windowSec seconds
     for (let s = nowSec - windowSec; s <= nowSec + windowSec; s++) {
       if (SessionsService.deriveRotatingToken(qrSeed, sessionId, s) === candidate) return true;
