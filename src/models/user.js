@@ -14,5 +14,3 @@ const UserSchema = new mongoose.Schema({
 UserSchema.index({ role: 1 });
 
 module.exports = mongoose.model('User', UserSchema);
-
-

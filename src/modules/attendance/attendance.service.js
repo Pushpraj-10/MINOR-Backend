@@ -92,8 +92,22 @@ class AttendanceService {
       }
 
       if (!skipBiometricValidation) {
-        const ok = await BiometricsService.validateSignature(studentUid, challenge, signature);
-        if (!ok) throw new Error('biometric_validation_failed');
+        try {
+          const ok = await BiometricsService.validateSignature(studentUid, challenge, signature);
+          if (!ok) throw new Error('biometric_validation_failed');
+        } catch (err) {
+          const msg = (err && err.message) ? err.message : '';
+          if (msg === 'challenge_mismatch') {
+            throw new Error('Biometric challenge expired or was already used. Please scan a fresh QR code.');
+          }
+          if (msg === 'replay_detected') {
+            throw new Error('This biometric proof was already consumed. Ask the professor to refresh the QR and try again.');
+          }
+          if (msg === 'no_key') {
+            throw new Error('No approved biometric key found. Re-register your device from the dashboard.');
+          }
+          throw err;
+        }
       }
 
       const update = {
