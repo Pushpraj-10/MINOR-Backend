@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const BiometricKey = require('../../models/biometricKey');
 const UsedToken = require('../../models/usedToken');
-const challengeStore = require('./challengeStore');
+const challengeStore = require('../challenge/challenge.service');
 const { verifySignaturePem } = require('./biometrics.utils');
 
 const DEFAULT_TTL = parseInt(process.env.BIOMETRIC_CHALLENGE_TTL || '60', 10);

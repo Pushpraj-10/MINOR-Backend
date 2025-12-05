@@ -1,24 +1,30 @@
-const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
-const path = require('path');
+const { MongoMemoryServer } = require('mongodb-memory-server');
 
-let mongod;
+let mongoServer;
 
-module.exports = {
-  async startInMemoryMongo() {
-    mongod = await MongoMemoryServer.create();
-    const uri = mongod.getUri();
-    process.env.MONGODB_URI = uri;
-    // set a predictable JWT secret for tests
-    process.env.JWT_SECRET = process.env.JWT_SECRET || 'testsecret';
-    await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
-    return mongoose.connection;
-  },
+before(async function () {
+  this.timeout(20000);
+  mongoServer = await MongoMemoryServer.create();
+  const uri = mongoServer.getUri();
+  process.env.MONGODB_URI = uri;
+  process.env.JWT_SECRET = 'testsecret';
+  process.env.JWT_REFRESH_SECRET = 'testrefresh';
+  process.env.JWT_REFRESH_MAX_AGE_MS = '604800000';
+  await mongoose.connect(uri);
+});
 
-  async stopInMemoryMongo() {
-    if (mongoose.connection && mongoose.connection.readyState === 1) {
-      await mongoose.disconnect();
-    }
-    if (mongod) await mongod.stop();
-  },
-};
+beforeEach(async function () {
+  const db = mongoose.connection;
+  if (!db || db.readyState !== 1) return;
+  await db.dropDatabase();
+});
+
+after(async function () {
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect();
+  }
+  if (mongoServer) {
+    await mongoServer.stop();
+  }
+});

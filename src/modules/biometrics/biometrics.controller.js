@@ -170,7 +170,7 @@ exports.revoke = async function (req, res) {
 exports.adminApprove = async function (req, res) {
   try {
     const profile = await AuthService.getProfile(req.headers.authorization);
-    if (profile.user.role !== 'professor') throw new Error('forbidden');
+    if (profile.user.role !== 'admin') throw new Error('forbidden');
     const { userId } = req.body || {};
     if (!userId) throw new Error('userId required');
     await Service.adminApprove(userId);
@@ -183,7 +183,7 @@ exports.adminApprove = async function (req, res) {
 exports.adminRevoke = async function (req, res) {
   try {
     const profile = await AuthService.getProfile(req.headers.authorization);
-    if (profile.user.role !== 'professor') throw new Error('forbidden');
+    if (profile.user.role !== 'admin') throw new Error('forbidden');
     const { userId, reason } = req.body || {};
     if (!userId) throw new Error('userId required');
     await Service.revoke(userId, reason || 'admin_revoked');

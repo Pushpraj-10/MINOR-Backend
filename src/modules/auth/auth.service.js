@@ -5,6 +5,7 @@ const User = require('../../models/user');
 const RefreshToken = require('../../models/refreshToken');
 
 const nanoid = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', 12);
+const ALLOWED_ROLES = ['student', 'professor', 'admin'];
 
 function signAccess(payload) {
   const secret = process.env.JWT_SECRET || 'defaultsecret';
@@ -25,7 +26,11 @@ async function verifyRefresh(refreshToken) {
 
 class AuthService {
   static async register(body) {
-    const { email, password, name, role = 'student' } = body;
+    const { email, password, name } = body;
+    let role = body.role || 'student';
+    if (!ALLOWED_ROLES.includes(role)) {
+      role = 'student';
+    }
     if (!email || !password) throw new Error('email and password are required');
     const existing = await User.findOne({ email });
     if (existing) throw new Error('User already exists');
@@ -90,6 +95,9 @@ class AuthService {
   }
 }
 
+AuthService.ALLOWED_ROLES = ALLOWED_ROLES;
+
 module.exports = AuthService;
+module.exports.ALLOWED_ROLES = ALLOWED_ROLES;
 
 

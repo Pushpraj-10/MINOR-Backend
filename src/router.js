@@ -6,6 +6,7 @@ const authRouter = require('./modules/auth/auth.router');
 const sessionsRouter = require('./modules/sessions/sessions.router');
 const biometricsRouter = require('./modules/biometrics/biometrics.router');
 const attendanceRouter = require('./modules/attendance/attendance.router');
+const adminRouter = require('./modules/admin/admin.router');
 
 const router = express.Router();
 
@@ -22,5 +23,8 @@ router.use('/biometrics', biometricsRouter);
 
 // Attendance (verifyChallenge + markPresent only)
 router.use('/attendance', attendanceRouter);
+
+// Admin-only routes
+router.use('/admin', adminRouter);
 
 module.exports = router;

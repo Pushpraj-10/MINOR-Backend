@@ -1,6 +1,5 @@
 const Service = require('./attendance.service');
 const AuthService = require('../auth/auth.service');
-const SessionsService = require('../sessions/sessions.service');
 
 exports.verifyChallenge = async function (req, res) {
   try {
@@ -19,14 +18,14 @@ exports.verifyChallenge = async function (req, res) {
 
     if (qrToken || sessionId) {
       try {
-        const attendanceResult = await SessionsService.checkin({
+        const attendanceResult = await Service.recordAttendance({
           qrToken,
           sessionId,
           studentUid: studentUid || profile.user.uid,
           method: 'biometric',
           challenge,
           signature
-        });
+        }, { skipBiometricValidation: true });
         return res.json({ verified: true, attendance: attendanceResult.attendance });
       } catch (attErr) {
         return res.json({ verified: true, attendanceError: attErr.message });
@@ -44,7 +43,7 @@ exports.markPresent = async function (req, res) {
     const profile = await AuthService.getProfile(req.headers.authorization);
     const body = req.body || {};
     if (!body.studentUid) body.studentUid = profile.user.uid;
-    const result = await SessionsService.checkin(body);
+    const result = await Service.recordAttendance(body);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
