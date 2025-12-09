@@ -48,7 +48,8 @@ class AttendanceService {
       studentUid: doc.studentUid,
       timestamp: doc.timestamp,
       method: doc.method,
-      verified: doc.verified
+      verified: doc.verified,
+      note: doc.note || null
     };
   }
 
@@ -134,6 +135,52 @@ class AttendanceService {
 
     const result = await Attendance.findOneAndUpdate(filter, update, { new: true, upsert: true });
     return { ok: true, verified: result.verified, attendance: AttendanceService.formatAttendance(result) };
+  }
+
+  static async takeLeave(body = {}) {
+    let { qrToken, sessionId, studentUid, reason } = body || {};
+
+    if ((!sessionId || sessionId === '') && typeof qrToken === 'string' && qrToken.includes(':')) {
+      const parts = qrToken.split(':');
+      if (parts.length >= 2 && parts[0].startsWith('sess_')) {
+        sessionId = parts[0];
+        qrToken = parts.slice(1).join(':');
+      }
+    }
+
+    if (!studentUid) throw new Error('studentUid required');
+
+    let sess = null;
+    if (sessionId) sess = await Session.findOne({ sessionId });
+    if (!sess && qrToken) sess = await Session.findOne({ qrToken });
+    if (!sess) throw new Error('session not found');
+    if (sess.expiresAt.getTime() < Date.now()) throw new Error('session expired');
+
+    if (sess.qrSeed) {
+      if (!qrToken) throw new Error('qrToken required');
+      const valid = AttendanceService.isRotatingTokenValid(qrToken, sess.qrSeed, sess.sessionId);
+      if (!valid) throw new Error('invalid qr');
+    } else if (sess.qrToken && qrToken && sess.qrToken !== qrToken) {
+      throw new Error('invalid qr');
+    }
+
+    const filter = { sessionId: sess.sessionId, studentUid };
+    const update = {
+      $setOnInsert: { sessionId: sess.sessionId, studentUid },
+      $set: {
+        timestamp: new Date(),
+        verified: false,
+        method: 'leave',
+        note: reason || null,
+      },
+    };
+
+    const result = await Attendance.findOneAndUpdate(filter, update, { new: true, upsert: true });
+    return { ok: true, attendance: AttendanceService.formatAttendance(result) };
+  }
+
+  static async getAttendanceStatistics(){
+    
   }
 }
 

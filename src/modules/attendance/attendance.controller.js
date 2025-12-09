@@ -49,3 +49,17 @@ exports.markPresent = async function (req, res) {
     res.status(400).json({ error: err.message });
   }
 };
+
+exports.takeLeave = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const body = req.body || {};
+    if (!body.studentUid) body.studentUid = profile.user.uid;
+    const result = await Service.takeLeave(body);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.getAttendanceStatistics = async function (req, res) {}
