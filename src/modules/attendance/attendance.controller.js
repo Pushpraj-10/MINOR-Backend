@@ -97,3 +97,23 @@ exports.getUserAttendanceRecords = async function (req, res) {
     res.status(err.status || 400).json({ error: err.message });
   }
 };
+
+exports.getStudentsByBatch = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const role = profile?.user?.role;
+    if (role !== 'admin' && role !== 'professor') {
+      const err = new Error('forbidden');
+      err.status = 403;
+      throw err;
+    }
+    const batch = profile?.user?.batch;
+    if (!batch) throw new Error('batch_missing');
+
+    const { search, limit } = req.query || {};
+    const students = await Service.listStudentsByBatch(batch, search, { limit });
+    res.json({ students });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+};

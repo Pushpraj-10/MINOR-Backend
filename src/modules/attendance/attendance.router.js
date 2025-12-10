@@ -10,5 +10,6 @@ router.post('/mark-present', generalLimiter, controller.markPresent);
 router.post('/take-leave', generalLimiter, controller.takeLeave);
 router.get('/statistics/:userId', generalLimiter, controller.getAttendanceStatistics);
 router.get('/records/:userId', generalLimiter, controller.getUserAttendanceRecords);
+router.get('/students/by-batch', generalLimiter, controller.getStudentsByBatch);
 
 module.exports = router;

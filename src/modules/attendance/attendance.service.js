@@ -275,6 +275,24 @@ class AttendanceService {
       stats,
     };
   }
+
+  static async listStudentsByBatch(batch, search, { limit = 200 } = {}) {
+    if (!batch) throw new Error('batch_required');
+    const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+    const query = { role: 'student', batch };
+    if (search && search.trim()) {
+      const regex = new RegExp(search.trim(), 'i');
+      query.$or = [{ name: regex }, { email: regex }, { uid: regex }];
+    }
+
+    const users = await User.find(query)
+      .select('-passwordHash')
+      .sort({ name: 1, email: 1 })
+      .limit(safeLimit)
+      .lean();
+
+    return users;
+  }
 }
 
 module.exports = AttendanceService;
