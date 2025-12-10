@@ -7,6 +7,7 @@ const sessionsRouter = require('./modules/sessions/sessions.router');
 const biometricsRouter = require('./modules/biometrics/biometrics.router');
 const attendanceRouter = require('./modules/attendance/attendance.router');
 const adminRouter = require('./modules/admin/admin.router');
+const leaveRouter = require('./modules/leave/leave.router');
 
 const router = express.Router();
 
@@ -26,5 +27,8 @@ router.use('/attendance', attendanceRouter);
 
 // Admin-only routes
 router.use('/admin', adminRouter);
+
+// Leave requests
+router.use('/leave', leaveRouter);
 
 module.exports = router;

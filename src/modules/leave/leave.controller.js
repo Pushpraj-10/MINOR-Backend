@@ -1,0 +1,23 @@
+const AuthService = require('../auth/auth.service');
+const LeaveService = require('./leave.service');
+
+exports.requestLeave = async function requestLeave(req, res) {
+	try {
+		const profile = await AuthService.getProfile(req.headers.authorization);
+		const { startDate, endDate, reason } = req.body || {};
+		const doc = await LeaveService.requestLeave(profile.user.uid, startDate, endDate, reason);
+		res.json({ leave: doc });
+	} catch (err) {
+		res.status(400).json({ error: err.message });
+	}
+};
+
+exports.listMyLeaves = async function listMyLeaves(req, res) {
+	try {
+		const profile = await AuthService.getProfile(req.headers.authorization);
+		const leaves = await LeaveService.listMyLeaves(profile.user.uid);
+		res.json({ leaves });
+	} catch (err) {
+		res.status(400).json({ error: err.message });
+	}
+};
