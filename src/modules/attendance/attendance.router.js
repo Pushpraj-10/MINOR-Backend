@@ -9,5 +9,6 @@ router.post('/verify-challenge', generalLimiter, controller.verifyChallenge);
 router.post('/mark-present', generalLimiter, controller.markPresent);
 router.post('/take-leave', generalLimiter, controller.takeLeave);
 router.get('/statistics/:userId', generalLimiter, controller.getAttendanceStatistics);
+router.get('/records/:userId', generalLimiter, controller.getUserAttendanceRecords);
 
 module.exports = router;

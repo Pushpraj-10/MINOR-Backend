@@ -74,3 +74,26 @@ exports.getAttendanceStatistics = async function (req, res) {
     res.status(400).json({ error: err.message });
   }
 };
+
+exports.getUserAttendanceRecords = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const targetUserId = req.params.userId;
+    if (!targetUserId) throw new Error('userId required');
+
+    const role = profile?.user?.role;
+    const isSelf = targetUserId === profile?.user?.uid;
+    const allowed = role === 'admin' || role === 'professor' || isSelf;
+    if (!allowed) {
+      const err = new Error('forbidden');
+      err.status = 403;
+      throw err;
+    }
+
+    const { limit, skip } = req.query || {};
+    const result = await Service.getUserAttendanceRecords(targetUserId, { limit, skip });
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+};

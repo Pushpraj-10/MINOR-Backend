@@ -55,6 +55,30 @@ class LeaveService {
 		const leaves = await Leave.find({ userId }).sort({ createdAt: -1 }).lean();
 		return leaves;
 	}
+
+	static async listAllLeaves({ status } = {}) {
+		const query = {};
+		if (status && status !== 'all') {
+			query.status = status;
+		}
+		const leaves = await Leave.find(query).sort({ createdAt: -1 }).lean();
+		return leaves;
+	}
+
+	static async reviewLeave(leaveId, status, reviewerId, note) {
+		if (!leaveId) throw new Error('leaveId required');
+		if (!['approved', 'rejected'].includes(status)) throw new Error('invalid_status');
+
+		const leave = await Leave.findById(leaveId);
+		if (!leave) throw new Error('leave_not_found');
+
+		leave.status = status;
+		leave.reviewedBy = reviewerId || null;
+		leave.reviewNote = note || null;
+		await leave.save();
+
+		return leave.toObject();
+	}
 }
 
 module.exports = LeaveService;

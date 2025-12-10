@@ -7,5 +7,7 @@ const limiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
 
 router.post('/request', limiter, controller.requestLeave);
 router.get('/my', limiter, controller.listMyLeaves);
+router.get('/all', limiter, controller.listAllLeaves);
+router.post('/:leaveId/decision', limiter, controller.reviewLeave);
 
 module.exports = router;

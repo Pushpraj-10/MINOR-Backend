@@ -21,3 +21,39 @@ exports.listMyLeaves = async function listMyLeaves(req, res) {
 		res.status(400).json({ error: err.message });
 	}
 };
+
+exports.listAllLeaves = async function listAllLeaves(req, res) {
+	try {
+		const profile = await AuthService.getProfile(req.headers.authorization);
+		const role = profile?.user?.role;
+		if (role !== 'admin' && role !== 'professor') {
+			const err = new Error('forbidden');
+			err.status = 403;
+			throw err;
+		}
+		const status = req.query?.status;
+		const leaves = await LeaveService.listAllLeaves({ status });
+		res.json({ leaves });
+	} catch (err) {
+		res.status(err.status || 400).json({ error: err.message });
+	}
+};
+
+exports.reviewLeave = async function reviewLeave(req, res) {
+	try {
+		const profile = await AuthService.getProfile(req.headers.authorization);
+		const role = profile?.user?.role;
+		if (role !== 'admin' && role !== 'professor') {
+			const err = new Error('forbidden');
+			err.status = 403;
+			throw err;
+		}
+
+		const { status, note } = req.body || {};
+		const leaveId = req.params.leaveId;
+		const updated = await LeaveService.reviewLeave(leaveId, status, profile.user.uid, note);
+		res.json({ leave: updated });
+	} catch (err) {
+		res.status(err.status || 400).json({ error: err.message });
+	}
+};

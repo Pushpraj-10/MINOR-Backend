@@ -255,6 +255,26 @@ class AttendanceService {
       missedSessions,
     };
   }
+
+  static async getUserAttendanceRecords(userId, { limit = 50, skip = 0 } = {}) {
+    if (!userId) throw new Error('userId required');
+    const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 200);
+    const safeSkip = Math.max(parseInt(skip, 10) || 0, 0);
+
+    const [records, stats] = await Promise.all([
+      Attendance.find({ studentUid: userId })
+        .sort({ timestamp: -1 })
+        .skip(safeSkip)
+        .limit(safeLimit)
+        .lean(),
+      AttendanceService.getAttendanceStatistics(userId),
+    ]);
+
+    return {
+      records: records.map(AttendanceService.formatAttendance),
+      stats,
+    };
+  }
 }
 
 module.exports = AttendanceService;
