@@ -6,6 +6,7 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   name: { type: String },
   passwordHash: { type: String },
+  batch: { type: String, default: null }, //For students it's their batch & for professors it's the batch they teach
   createdAt: { type: Date, required: true, default: () => new Date() },
   updatedAt: { type: Date, default: null },
 });

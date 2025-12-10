@@ -62,4 +62,15 @@ exports.takeLeave = async function (req, res) {
   }
 };
 
-exports.getAttendanceStatistics = async function (req, res) {}
+exports.getAttendanceStatistics = async function (req, res) {
+  try {
+    const profile = await AuthService.getProfile(req.headers.authorization);
+    const userId = (req.params.userId && req.params.userId !== 'me')
+      ? req.params.userId
+      : profile.user.uid;
+    const stats = await Service.getAttendanceStatistics(userId);
+    res.json(stats);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};

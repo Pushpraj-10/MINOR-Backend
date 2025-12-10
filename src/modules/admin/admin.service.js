@@ -2,10 +2,17 @@ const User = require('../../models/user');
 const BiometricKey = require('../../models/biometricKey');
 const BiometricsService = require('../biometrics/biometrics.service');
 const AuthService = require('../auth/auth.service');
+const fs = require('fs');
+const { parse } = require('csv-parse/sync');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 const ALLOWED_ROLES = AuthService.ALLOWED_ROLES || ['student', 'professor', 'admin'];
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
+const UPLOAD_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+const uploadStore = new Map();
 
 function normalizePagination(page, pageSize) {
   const safePage = Math.max(parseInt(page, 10) || 1, 1);
@@ -148,10 +155,106 @@ class AdminService {
     };
   }
 
+  // -----------------------------
+  // BULK IMPORT (CSV with mapping)
+  // -----------------------------
+  static _storeUpload(filePath) {
+    const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    uploadStore.set(id, { filePath, expires: Date.now() + UPLOAD_TTL_MS });
+    return id;
+  }
+
+  static _consumeUpload(uploadId) {
+    const entry = uploadStore.get(uploadId);
+    if (!entry) throw new Error('upload_not_found');
+    if (entry.expires < Date.now()) {
+      uploadStore.delete(uploadId);
+      try { fs.unlinkSync(entry.filePath); } catch (_) {}
+      throw new Error('upload_expired');
+    }
+    uploadStore.delete(uploadId);
+    return entry.filePath;
+  }
+
+  static async previewCsvUpload(filePath) {
+    try {
+      const content = fs.readFileSync(filePath);
+      const records = parse(content, { columns: true, skip_empty_lines: true });
+      if (!records.length) throw new Error('empty_csv');
+
+      const headers = Object.keys(records[0]);
+      const sample = records.slice(0, 10);
+      const uploadId = this._storeUpload(filePath);
+
+      return { uploadId, headers, sampleRows: sample };
+    } catch (err) {
+      try { fs.unlinkSync(filePath); } catch (_) {}
+      throw err;
+    }
+  }
+
   static async approveBiometric(userId) {
     if (!userId) throw new Error('userId required');
     await BiometricsService.adminApprove(userId);
     return { ok: true };
+  }
+
+  static async importCsvUpload(uploadId, mapping) {
+    const filePath = this._consumeUpload(uploadId);
+
+    const content = fs.readFileSync(filePath);
+    const records = parse(content, { columns: true, skip_empty_lines: true });
+
+    const requiredFields = ['email', 'uid', 'password'];
+    for (const f of requiredFields) {
+      if (!mapping[f]) throw new Error(`mapping_missing_${f}`);
+    }
+
+    let successCount = 0;
+    const errors = [];
+
+    for (const row of records) {
+      try {
+        const email = row[mapping.email];
+        const uid = row[mapping.uid];
+        const password = row[mapping.password];
+        const name = mapping.name ? row[mapping.name] : undefined;
+        const batch = mapping.batch ? row[mapping.batch] : undefined;
+        const role = this.normalizeRole(mapping.role ? row[mapping.role] : null) || 'student';
+
+        if (!email || !uid || !password) {
+          throw new Error('missing_required_fields');
+        }
+
+        const dup = await User.findOne({ $or: [{ email }, { uid }] });
+        if (dup) throw new Error('duplicate_user');
+
+        const passwordHash = await bcrypt.hash(password, 10);
+
+        await User.create({
+          uid,
+          email,
+          name: name || undefined,
+          passwordHash,
+          role,
+          batch: batch || null,
+          createdAt: new Date(),
+        });
+
+        successCount += 1;
+      } catch (err) {
+        errors.push({ row: row, error: err.message });
+      }
+    }
+
+    try { fs.unlinkSync(filePath); } catch (_) {}
+
+    return {
+      uploadId,
+      successCount,
+      failureCount: errors.length,
+      errors,
+    };
   }
 }
 

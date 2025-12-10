@@ -179,8 +179,81 @@ class AttendanceService {
     return { ok: true, attendance: AttendanceService.formatAttendance(result) };
   }
 
-  static async getAttendanceStatistics(){
-    
+  static async getAttendanceStatistics(userId) {
+    if (!userId) throw new Error('userId required');
+
+    const user = await User.findOne({ uid: userId }).lean();
+    const userBatch = user?.batch || null;
+
+    // Fetch all sessions that have expired (cannot be marked anymore)
+    const sessions = await Session.find({ expiresAt: { $lt: new Date() } })
+      .select('sessionId title professorUid expiresAt createdAt meta')
+      .lean();
+
+    const filteredSessions = userBatch
+      ? sessions.filter((s) => {
+          const meta = s.meta || {};
+          const mBatch = meta.batch;
+          const mBatches = Array.isArray(meta.batches) ? meta.batches : [];
+          const mAllowed = Array.isArray(meta.allowedBatches) ? meta.allowedBatches : [];
+          if (mBatch && mBatch === userBatch) return true;
+          if (mBatches.includes(userBatch)) return true;
+          if (mAllowed.includes(userBatch)) return true;
+          return false;
+        })
+      : sessions;
+
+    // Map for quick lookup
+    const sessionIds = filteredSessions.map((s) => s.sessionId);
+
+    // Fetch attendance docs for this user for those sessions
+    const attendance = await Attendance.find({
+      studentUid: userId,
+      sessionId: { $in: sessionIds },
+    })
+      .select('sessionId verified method timestamp note')
+      .lean();
+
+    const attendanceBySession = new Map();
+    for (const doc of attendance) {
+      attendanceBySession.set(doc.sessionId, doc);
+    }
+
+    const missedSessions = [];
+    let attendedCount = 0;
+    let leaveCount = 0;
+
+    for (const sess of filteredSessions) {
+      const att = attendanceBySession.get(sess.sessionId);
+      if (att && att.method === 'leave') {
+        leaveCount += 1;
+        continue; // treated separately, not missed
+      }
+      if (att && att.verified === true) {
+        attendedCount += 1;
+        continue;
+      }
+
+      missedSessions.push({
+        sessionId: sess.sessionId,
+        title: sess.title || null,
+        professorUid: sess.professorUid,
+        expiredAt: sess.expiresAt,
+      });
+    }
+
+    const total = filteredSessions.length;
+    const denominator = Math.max(1, total - leaveCount); // exclude approved leaves from percentage
+    const attendancePercent = (attendedCount / denominator) * 100;
+
+    return {
+      totalSessions: total,
+      attended: attendedCount,
+      leave: leaveCount,
+      missed: missedSessions.length,
+      attendancePercent,
+      missedSessions,
+    };
   }
 }
 

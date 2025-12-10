@@ -1,5 +1,6 @@
 const AdminService = require('./admin.service');
 const AuthService = require('../auth/auth.service');
+const fs = require('fs');
 
 async function ensureAdmin(req) {
   const profile = await AuthService.getProfile(req.headers.authorization);
@@ -64,6 +65,32 @@ exports.approveBiometricRequest = async function approveBiometricRequest(req, re
   try {
     await ensureAdmin(req);
     const result = await AdminService.approveBiometric(req.params.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+exports.bulkPreviewUsers = async function bulkPreviewUsers(req, res) {
+  try {
+    await ensureAdmin(req);
+    if (!req.file) throw new Error('file_required');
+    const preview = await AdminService.previewCsvUpload(req.file.path);
+    res.json(preview);
+  } catch (err) {
+    if (req.file && req.file.path) {
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
+    }
+    handleError(res, err);
+  }
+};
+
+exports.bulkImportUsers = async function bulkImportUsers(req, res) {
+  try {
+    await ensureAdmin(req);
+    const { uploadId, mapping } = req.body || {};
+    if (!uploadId || !mapping) throw new Error('uploadId_and_mapping_required');
+    const result = await AdminService.importCsvUpload(uploadId, mapping);
     res.json(result);
   } catch (err) {
     handleError(res, err);
