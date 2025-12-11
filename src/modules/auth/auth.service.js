@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { customAlphabet } = require('nanoid');
+const admin = require('firebase-admin');
 const User = require('../../models/user');
 const RefreshToken = require('../../models/refreshToken');
 
@@ -47,6 +48,41 @@ class AuthService {
     if (!user) throw new Error('Invalid credentials');
     const ok = await bcrypt.compare(password, user.passwordHash || '');
     if (!ok) throw new Error('Invalid credentials');
+    const payload = { uid: user.uid, role: user.role };
+    const accessToken = signAccess(payload);
+    const refreshToken = signRefresh(payload);
+    const tokenId = 'rt_' + nanoid();
+    const refreshExpires = new Date(Date.now() + (parseInt(process.env.JWT_REFRESH_MAX_AGE_MS || '604800000', 10)));
+    await RefreshToken.create({ tokenId, uid: user.uid, createdAt: new Date(), expiresAt: refreshExpires });
+    return { accessToken, refreshToken, user: { uid: user.uid, email: user.email, role: user.role, name: user.name } };
+  }
+
+  /**
+   * Login using Firebase ID token (Google Sign-In or any Firebase provider).
+   * Frontend should obtain `idToken` from Firebase Auth and post it here.
+   */
+  static async loginWithGoogle(idToken) {
+    if (!idToken) throw new Error('missing_id_token');
+    // Verify Firebase ID token
+    let decoded;
+    try {
+      decoded = await admin.auth().verifyIdToken(idToken);
+    } catch (err) {
+      throw new Error('invalid_id_token');
+    }
+
+    const email = decoded.email;
+    const name = decoded.name || decoded.email || 'User';
+    const uidFirebase = decoded.uid;
+    if (!email) throw new Error('email_missing_in_token');
+
+    // Find or create local user record linked to Firebase UID
+    let user = await User.findOne({ email });
+    if (!user) {
+      const uid = 'user_' + nanoid();
+      user = await User.create({ uid, role: 'student', email, name, passwordHash: null, createdAt: new Date() });
+    }
+
     const payload = { uid: user.uid, role: user.role };
     const accessToken = signAccess(payload);
     const refreshToken = signRefresh(payload);

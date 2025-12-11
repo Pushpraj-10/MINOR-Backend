@@ -26,6 +26,23 @@ exports.login = async function (req, res) {
   }
 };
 
+exports.loginWithGoogle = async function (req, res) {
+  try {
+    const idToken = req.body?.idToken;
+    const { accessToken, refreshToken, user } = await service.loginWithGoogle(idToken);
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    res.json({ accessToken, user });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
 exports.refreshToken = async function (req, res) {
   try {
     const refreshToken = req.cookies?.refresh_token || req.body?.refreshToken;
