@@ -11,12 +11,10 @@ class BiometricsService {
   static async requestEnable(userId) {
     const doc = await BiometricKey.findOne({ userId });
     if (!doc) {
-      await BiometricKey.create({ userId, status: 'pending', createdAt: new Date() });
+      await BiometricKey.create({ userId, status: 'pending', createdAt: new Date(), updatedAt: new Date() });
       return;
     }
-    doc.status = 'pending';
-    doc.updatedAt = new Date();
-    await doc.save();
+    await BiometricKey.updateOne({ userId }, { $set: { status: 'pending', updatedAt: new Date() } });
   }
 
   static async getStatus(userId) {
@@ -34,7 +32,7 @@ class BiometricsService {
   static async adminApprove(userId) {
     let doc = await BiometricKey.findOne({ userId });
     if (!doc) {
-      doc = await BiometricKey.create({
+      const created = await BiometricKey.create({
         userId,
         status: 'approved',
         failedAttempts: 0,
@@ -43,25 +41,23 @@ class BiometricsService {
         updatedAt: new Date()
       });
       console.log(`biometrics.adminApprove: user=${userId} created approved record (no pem)`);
-      return doc;
+      try { await challengeStore.delete(userId); } catch (_) {}
+      return created;
     }
 
     // Promote pending → active if present
+    const update = { $set: { status: 'approved', failedAttempts: 0, lastFailedAt: null, updatedAt: new Date() } };
     if (doc.pendingPublicKeyPem) {
       console.log(`biometrics.adminApprove: user=${userId} promoting pending key (len=${(doc.pendingPublicKeyPem||'').length})`);
-      doc.publicKeyPem = doc.pendingPublicKeyPem;
-      doc.publicKeyHash = doc.pendingPublicKeyHash || null;
-      doc.pendingPublicKeyPem = null;
-      doc.pendingPublicKeyHash = null;
-      doc.pendingCreatedAt = null;
+      update.$set.publicKeyPem = doc.pendingPublicKeyPem;
+      update.$set.publicKeyHash = doc.pendingPublicKeyHash || null;
+      update.$set.pendingPublicKeyPem = null;
+      update.$set.pendingPublicKeyHash = null;
+      update.$set.pendingCreatedAt = null;
     }
-    doc.status = 'approved';
-    doc.failedAttempts = 0;
-    doc.lastFailedAt = null;
-    doc.updatedAt = new Date();
-    await doc.save();
+    await BiometricKey.updateOne({ userId }, update);
     try { await challengeStore.delete(userId); } catch (_) {}
-    return doc;
+    return await BiometricKey.findOne({ userId });
   }
 
   /**
@@ -116,16 +112,19 @@ class BiometricsService {
       let pendingHash = null;
       try { pendingHash = crypto.createHash('sha256').update(nIncoming).digest('hex'); } catch {}
 
-      doc.publicKeyPem = null;
-      doc.publicKeyHash = null;
-      doc.pendingPublicKeyPem = publicKeyPem;
-      doc.pendingPublicKeyHash = pendingHash;
-      doc.pendingCreatedAt = new Date();
-      doc.status = 'pending';
-      doc.failedAttempts = 0;
-      doc.lastFailedAt = null;
-      doc.updatedAt = new Date();
-      await doc.save();
+      await BiometricKey.updateOne({ userId }, {
+        $set: {
+          publicKeyPem: null,
+          publicKeyHash: null,
+          pendingPublicKeyPem: publicKeyPem,
+          pendingPublicKeyHash: pendingHash,
+          pendingCreatedAt: new Date(),
+          status: 'pending',
+          failedAttempts: 0,
+          lastFailedAt: null,
+          updatedAt: new Date(),
+        }
+      });
 
       try { await challengeStore.delete(userId); } catch (_) {}
       console.log(`biometrics.registerKey: user=${userId} different key → old deleted, pending set, status=pending`);
@@ -136,16 +135,19 @@ class BiometricsService {
     console.log(`biometrics.registerKey: user=${userId} state=${doc.status} overwrite → pending`);
     let publicKeyHash = null;
     try { publicKeyHash = crypto.createHash('sha256').update(nIncoming).digest('hex'); } catch {}
-    doc.publicKeyPem = publicKeyPem;
-    doc.publicKeyHash = publicKeyHash;
-    doc.pendingPublicKeyPem = null;
-    doc.pendingPublicKeyHash = null;
-    doc.pendingCreatedAt = null;
-    doc.status = 'pending';
-    doc.failedAttempts = 0;
-    doc.lastFailedAt = null;
-    doc.updatedAt = new Date();
-    await doc.save();
+    await BiometricKey.updateOne({ userId }, {
+      $set: {
+        publicKeyPem: publicKeyPem,
+        publicKeyHash,
+        pendingPublicKeyPem: null,
+        pendingPublicKeyHash: null,
+        pendingCreatedAt: null,
+        status: 'pending',
+        failedAttempts: 0,
+        lastFailedAt: null,
+        updatedAt: new Date(),
+      }
+    });
     try { await challengeStore.delete(userId); } catch (_) {}
   }
 
@@ -165,9 +167,7 @@ class BiometricsService {
         publicKeyHash = crypto.createHash('sha256')
           .update((doc.publicKeyPem || '').replace(/\s+/g, '').trim())
           .digest('hex');
-        doc.publicKeyHash = publicKeyHash;
-        doc.updatedAt = new Date();
-        doc.save().catch(() => {});
+        await BiometricKey.updateOne({ userId }, { $set: { publicKeyHash, updatedAt: new Date() } });
       } catch {}
     }
     return {
@@ -225,9 +225,8 @@ class BiometricsService {
 
     const ok = verifySignaturePem(keyDoc.publicKeyPem, challenge, signatureBase64);
     if (!ok) {
-      keyDoc.failedAttempts = (keyDoc.failedAttempts || 0) + 1;
-      keyDoc.lastFailedAt = new Date();
-      await keyDoc.save();
+      const failedAttempts = (keyDoc.failedAttempts || 0) + 1;
+      await BiometricKey.updateOne({ userId }, { $set: { failedAttempts, lastFailedAt: new Date() } });
 
       if (keyDoc.failedAttempts >= FAILED_ATTEMPTS_THRESHOLD) {
         console.warn(`biometrics.validateSignature: user=${userId} threshold reached → revoke`);
@@ -237,21 +236,16 @@ class BiometricsService {
     }
 
     if (keyDoc.failedAttempts && keyDoc.failedAttempts > 0) {
-      keyDoc.failedAttempts = 0;
-      keyDoc.lastFailedAt = null;
-      keyDoc.updatedAt = new Date();
-      await keyDoc.save();
+      await BiometricKey.updateOne({ userId }, { $set: { failedAttempts: 0, lastFailedAt: null, updatedAt: new Date() } });
     }
 
-    try {
-      await UsedToken.create({ tokenHash, createdAt: new Date() });
-    } catch (err) {
-      if (err.code === 11000) {
-        await BiometricsService.revoke(userId, 'replay_detected');
-        throw new Error('replay_detected');
-      }
-      throw err;
+    // Insert used token; Firestore adapter uses tokenHash as id
+    const existingUsed = await UsedToken.findOne({ tokenHash });
+    if (existingUsed) {
+      await BiometricsService.revoke(userId, 'replay_detected');
+      throw new Error('replay_detected');
     }
+    await UsedToken.create({ tokenHash, createdAt: new Date() });
 
     console.log(`biometrics.finalVerification: user=${userId} verified=true`);
     return true;
@@ -260,14 +254,15 @@ class BiometricsService {
   static async revoke(userId, reason) {
     const doc = await BiometricKey.findOne({ userId });
     if (doc) {
-      doc.publicKeyPem = null;
-      doc.publicKeyHash = null;
-      doc.pendingPublicKeyPem = null;
-      doc.pendingPublicKeyHash = null;
-      doc.pendingCreatedAt = null;
-      doc.status = 'revoked';
-      doc.updatedAt = new Date();
-      await doc.save();
+      await BiometricKey.updateOne({ userId }, { $set: {
+        publicKeyPem: null,
+        publicKeyHash: null,
+        pendingPublicKeyPem: null,
+        pendingPublicKeyHash: null,
+        pendingCreatedAt: null,
+        status: 'revoked',
+        updatedAt: new Date(),
+      } });
     } else {
       await BiometricKey.create({ userId, status: 'revoked', createdAt: new Date(), updatedAt: new Date() });
     }
@@ -278,13 +273,14 @@ class BiometricsService {
   static async deleteKey(userId) {
     const keyDoc = await BiometricKey.findOne({ userId });
     if (keyDoc) {
-      keyDoc.publicKeyPem = null;
-      keyDoc.publicKeyHash = null;
-      keyDoc.pendingPublicKeyPem = null;
-      keyDoc.pendingPublicKeyHash = null;
-      keyDoc.status = 'deleted';
-      keyDoc.updatedAt = new Date();
-      await keyDoc.save();
+      await BiometricKey.updateOne({ userId }, { $set: {
+        publicKeyPem: null,
+        publicKeyHash: null,
+        pendingPublicKeyPem: null,
+        pendingPublicKeyHash: null,
+        status: 'deleted',
+        updatedAt: new Date(),
+      } });
     }
   }
 }

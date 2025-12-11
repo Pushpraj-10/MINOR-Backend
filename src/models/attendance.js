@@ -1,18 +1,10 @@
-const mongoose = require('mongoose');
+const { FirestoreModel } = require('./_firestoreModel');
 
-const AttendanceSchema = new mongoose.Schema({
-  sessionId: { type: String, required: true },
-  studentUid: { type: String, required: true },
-  timestamp: { type: Date, required: true, default: () => new Date() },
-  verified: { type: Boolean, required: true },
-  method: { type: String },
-  note: { type: String, default: null },
-});
+// Firestore collection for attendance records
+// Fields mirror the original schema for smoother migration.
+// Note: Firestore does not enforce indexes here; configure indexes in console if needed.
+const Attendance = FirestoreModel('attendance', { idField: 'id' });
 
-AttendanceSchema.index({ sessionId: 1, studentUid: 1 }, { unique: true });
-AttendanceSchema.index({ studentUid: 1 });
-AttendanceSchema.index({ timestamp: 1 });
-
-module.exports = mongoose.model('Attendance', AttendanceSchema);
+module.exports = Attendance;
 
 

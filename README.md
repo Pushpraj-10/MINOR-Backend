@@ -15,7 +15,8 @@ backend/
   - app.js                -> Express app setup and HTTP server
   - router.js             -> Top-level router that mounts sub-routers
   - config/
-    - db.js               -> MongoDB connection setup
+    - db.js               -> MongoDB (Mongoose) connection setup
+    - firestore.js        -> Optional Firestore initialization via firebase-admin
   - models/
     - session.js          -> Session mongoose model (sessionId, qrSeed, expiresAt, etc.)
     - attendance.js       -> Attendance records (sessionId, studentUid, timestamp, verified)
@@ -109,6 +110,16 @@ These models are the canonical storage for the QR/session/checkin flows. If you 
 MONGO_URI=mongodb://localhost:27017/minor
 JWT_SECRET=replace_with_a_secret
 PORT=4000
+
+# Firestore (optional)
+# If you want to use Firestore for some features, set these:
+# FIRESTORE_URI can be like: projects/<projectId>/databases/(default)
+FIRESTORE_URI=projects/my-gcp-project/databases/(default)
+# Or explicitly set the project id:
+# FIRESTORE_PROJECT_ID=my-gcp-project
+# And configure GOOGLE_APPLICATION_CREDENTIALS to point to your service account JSON
+# Example (Windows PowerShell):
+# $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\\path\\to\\service-account.json"
 ```
 
 2. Install dependencies and run:
@@ -118,6 +129,27 @@ cd backend
 npm install
 node src/app.js        # or use your dev script (nodemon)
 ```
+
+### Using Firestore (optional)
+
+If you plan to use Firestore alongside or instead of MongoDB in new modules/services, initialize it via `src/config/firestore.js`.
+
+Setup steps (Windows PowerShell):
+
+```
+# Set credentials env var to your service account JSON
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\path\to\service-account.json"
+
+# Option A: provide FIRESTORE_URI in .env (projects/<projectId>/databases/(default))
+# Option B: set FIRESTORE_PROJECT_ID in .env
+
+# In your service file:
+const { connectToFirestore } = require('./src/config/firestore');
+const firestore = connectToFirestore();
+// Use firestore.collection('yourCollection')...
+```
+
+Note: Existing persistence uses MongoDB/Mongoose. Firestore support is additive. Migrating existing models to Firestore requires service-layer changes; start with new features or read paths first.
 
 3. Run the QR test harness (optional):
 

@@ -27,7 +27,7 @@ function initRealtime(server) {
     const interval = setInterval(() => {
       const now = Date.now();
       const nowSec = Math.floor(now / 1000);
-      if (sess.expiresAt.getTime() <= now) {
+      if (new Date(sess.expiresAt).getTime() <= now) {
         clearInterval(interval);
         broadcasters.delete(sessionId);
         sessionsNs.to(sessionId).emit('session:ended', { sessionId });

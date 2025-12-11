@@ -43,23 +43,30 @@ class AdminService {
     }
 
     if (search && search.trim()) {
-      const regex = new RegExp(search.trim(), 'i');
-      query.$or = [
-        { email: regex },
-        { name: regex },
-        { uid: regex },
-      ];
+      const term = search.trim().toLowerCase();
+      // Firestore: fetch and filter client-side for search
     }
 
-    const [total, users] = await Promise.all([
-      User.countDocuments(query),
-      User.find(query)
-        .select('-passwordHash')
-        .sort({ createdAt: -1 })
-        .skip((safePage - 1) * safeSize)
-        .limit(safeSize)
-        .lean(),
-    ]);
+    let usersAll = await User.find(query);
+    // sanitize and search filter
+    usersAll = (usersAll || []).map(u => {
+      const copy = { ...u };
+      delete copy.passwordHash;
+      return copy;
+    });
+    if (search && search.trim()) {
+      const term = search.trim().toLowerCase();
+      usersAll = usersAll.filter(u => (
+        (u.email || '').toLowerCase().includes(term) ||
+        (u.name || '').toLowerCase().includes(term) ||
+        (u.uid || '').toLowerCase().includes(term)
+      ));
+    }
+    // sort by createdAt desc, fallback stable
+    usersAll.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    const total = usersAll.length;
+    const start = (safePage - 1) * safeSize;
+    const users = usersAll.slice(start, start + safeSize);
 
     return {
       users,
@@ -82,19 +89,17 @@ class AdminService {
     if (!user) throw new Error('user_not_found');
 
     if (user.role === 'admin' && normalizedRole !== 'admin') {
-      const adminCount = await User.countDocuments({ role: 'admin' });
+      const admins = await User.find({ role: 'admin' });
+      const adminCount = (admins || []).length;
       if (adminCount <= 1) {
         throw new Error('last_admin');
       }
     }
 
-    user.role = normalizedRole;
-    user.updatedAt = new Date();
-    await user.save();
-
-    const sanitized = user.toObject();
-    delete sanitized.passwordHash;
-    return sanitized;
+    await User.updateOne({ uid: targetUid }, { $set: { role: normalizedRole, updatedAt: new Date() } });
+    const updated = await User.findOne({ uid: targetUid });
+    if (updated) delete updated.passwordHash;
+    return updated;
   }
 
   static async listBiometricRequests({ status, search, page, pageSize }) {
@@ -106,36 +111,35 @@ class AdminService {
 
     let orFilters = null;
     if (search && search.trim()) {
-      const regex = new RegExp(search.trim(), 'i');
-      orFilters = [{ userId: { $regex: regex } }];
-      const matchedUsers = await User.find({
-        $or: [
-          { email: regex },
-          { name: regex },
-          { uid: regex },
-        ],
-      }).select('uid').lean();
-      if (matchedUsers.length) {
-        const ids = matchedUsers.map((u) => u.uid);
-        orFilters.push({ userId: { $in: ids } });
-      }
-      match.$or = orFilters;
+      const term = search.trim().toLowerCase();
+      // Firestore cannot do regex; we will filter client-side
     }
 
-    const [total, docs] = await Promise.all([
-      BiometricKey.countDocuments(match),
-      BiometricKey.find(match)
-        .sort({ pendingCreatedAt: -1, updatedAt: -1, createdAt: -1 })
-        .skip((safePage - 1) * safeSize)
-        .limit(safeSize)
-        .lean(),
-    ]);
+    let docsAll = await BiometricKey.find(match);
+    if (search && search.trim()) {
+      const term = search.trim().toLowerCase();
+      docsAll = docsAll.filter(d => (
+        (d.userId || '').toLowerCase().includes(term) ||
+        (d.publicKeyHash || '').toLowerCase().includes(term) ||
+        (d.pendingPublicKeyHash || '').toLowerCase().includes(term)
+      ));
+    }
+    docsAll.sort((a, b) => {
+      const aTime = new Date(a.pendingCreatedAt || a.updatedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.pendingCreatedAt || b.updatedAt || b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+    const total = docsAll.length;
+    const start = (safePage - 1) * safeSize;
+    const docs = docsAll.slice(start, start + safeSize);
 
     const userIds = docs.map((doc) => doc.userId);
-    const relatedUsers = await User.find({ uid: { $in: userIds } })
-      .select('-passwordHash')
-      .lean();
-    const userMap = new Map(relatedUsers.map((u) => [u.uid, u]));
+    const relatedUsers = await User.find({ uid: { $in: userIds } });
+    const userMap = new Map((relatedUsers || []).map((u) => {
+      const copy = { ...u };
+      delete copy.passwordHash;
+      return [u.uid, copy];
+    }));
 
     const requests = docs.map((doc) => ({
       userId: doc.userId,
@@ -227,8 +231,10 @@ class AdminService {
           throw new Error('missing_required_fields');
         }
 
-        const dup = await User.findOne({ $or: [{ email }, { uid }] });
-        if (dup) throw new Error('duplicate_user');
+        // Firestore doesn't support $or directly; check separately
+        const dupByUid = await User.findOne({ uid });
+        const dupByEmail = await User.findOne({ email });
+        if (dupByUid || dupByEmail) throw new Error('duplicate_user');
 
         const passwordHash = await bcrypt.hash(password, 10);
 
@@ -272,9 +278,8 @@ class AdminService {
   static async _listStudents(batch) {
     const query = { role: 'student' };
     if (batch) query.batch = batch;
-    const users = await User.find(query)
-      .select('uid name batch')
-      .lean();
+    let users = await User.find(query);
+    users = (users || []).map(u => ({ uid: u.uid, name: u.name, batch: u.batch }));
     return users;
   }
 
@@ -306,7 +311,7 @@ class AdminService {
         studentUid: s.uid,
         timestamp: { $gte: start, $lt: end },
         verified: true,
-      }).select('timestamp').lean();
+      });
 
       const presentDays = this._distinctDayCount(attendanceDocs);
       const absentDays = Math.max(totalDays - presentDays, 0);

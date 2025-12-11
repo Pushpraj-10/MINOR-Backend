@@ -1,16 +1,8 @@
-const mongoose = require('mongoose');
+const { FirestoreModel } = require('./_firestoreModel');
 
-const RefreshTokenSchema = new mongoose.Schema({
-  tokenId: { type: String, required: true, unique: true },
-  uid: { type: String, required: true },
-  createdAt: { type: Date, required: true, default: () => new Date() },
-  expiresAt: { type: Date, required: true },
-});
+// Firestore collection for refresh tokens; use tokenId as document id.
+const RefreshToken = FirestoreModel('refreshTokens', { idField: 'tokenId' });
 
-// Unique index already via schema path (unique: true)
-RefreshTokenSchema.index({ uid: 1 });
-RefreshTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-
-module.exports = mongoose.model('RefreshToken', RefreshTokenSchema);
+module.exports = RefreshToken;
 
 

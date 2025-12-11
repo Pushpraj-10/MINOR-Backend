@@ -26,7 +26,7 @@ class SessionsService {
     const sessionsToday = await Session.find({
       professorUid: decoded.uid,
       createdAt: { $gte: dayStart, $lte: dayEnd },
-    }).lean();
+    });
     if (sessionsToday.length >= 2) {
       const err = new Error('daily_session_limit_exceeded');
       err.status = 400;
@@ -84,7 +84,7 @@ class SessionsService {
     if (sessionId) sess = await Session.findOne({ sessionId });
     if (!sess && qrToken) sess = await Session.findOne({ qrToken });
     if (!sess) throw new Error('session not found');
-    if (sess.expiresAt.getTime() < Date.now()) throw new Error('session expired');
+    if (new Date(sess.expiresAt).getTime() < Date.now()) throw new Error('session expired');
 
     // If session uses rotating tokens, validate candidate
     if (sess.qrSeed) {
@@ -101,16 +101,22 @@ class SessionsService {
       const ok = await BiometricsService.validateSignature(studentUid, challenge, signature);
       if (!ok) throw new Error('biometric_validation_failed');
 
-      const update = {
-        $setOnInsert: { sessionId: sess.sessionId, studentUid },
-        $set: { timestamp: new Date(), verified: true, method: 'biometric' },
-      };
-
-      const result = await Attendance.findOneAndUpdate(
-        { sessionId: sess.sessionId, studentUid },
-        update,
-        { new: true, upsert: true }
-      );
+      // Upsert emulation for Firestore
+      const filter = { sessionId: sess.sessionId, studentUid };
+      const existing = await Attendance.findOne(filter);
+      let result;
+      if (!existing) {
+        result = await Attendance.create({
+          sessionId: sess.sessionId,
+          studentUid,
+          timestamp: new Date(),
+          verified: true,
+          method: 'biometric',
+        });
+      } else {
+        await Attendance.updateOne(filter, { $set: { timestamp: new Date(), verified: true, method: 'biometric' } });
+        result = await Attendance.findOne(filter);
+      }
       return { ok: true, verified: true, attendance: { sessionId: result.sessionId, studentUid: result.studentUid, timestamp: result.timestamp, method: result.method, verified: result.verified } };
     }
 
@@ -125,16 +131,21 @@ class SessionsService {
     const user = await User.findOne({ uid: studentUid });
     if (!user) throw new Error('user not found');
 
-    const update = {
-      $setOnInsert: { sessionId: sess.sessionId, studentUid },
-      $set: { timestamp: new Date(), verified: false, method: 'qr' },
-    };
-
-    const result = await Attendance.findOneAndUpdate(
-      { sessionId: sess.sessionId, studentUid },
-      update,
-      { new: true, upsert: true }
-    );
+    const filter = { sessionId: sess.sessionId, studentUid };
+    let result;
+    const existingQr = await Attendance.findOne(filter);
+    if (!existingQr) {
+      result = await Attendance.create({
+        sessionId: sess.sessionId,
+        studentUid,
+        timestamp: new Date(),
+        verified: false,
+        method: 'qr',
+      });
+    } else {
+      await Attendance.updateOne(filter, { $set: { timestamp: new Date(), verified: false, method: 'qr' } });
+      result = await Attendance.findOne(filter);
+    }
     return { ok: true, verified: result.verified, attendance: { sessionId: result.sessionId, studentUid: result.studentUid, timestamp: result.timestamp, method: result.method, verified: result.verified } };
   }
 
@@ -142,21 +153,19 @@ class SessionsService {
     const decoded = authzProfessor(authorization);
     
     // Get all sessions created by this professor
-    const sessions = await Session.find({ professorUid: decoded.uid })
-      .sort({ createdAt: -1 })
-      .limit(50); // Limit to recent 50 sessions
+    let sessions = await Session.find({ professorUid: decoded.uid });
+    sessions = (sessions || []).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).slice(0, 50);
     
     // For each session, get attendance statistics
     const sessionsWithStats = await Promise.all(
       sessions.map(async (session) => {
         // Count total attendance records for this session
-        const totalAttendance = await Attendance.countDocuments({ sessionId: session.sessionId });
+        const totalAttendanceList = await Attendance.find({ sessionId: session.sessionId });
+        const totalAttendance = (totalAttendanceList || []).length;
         
         // Count verified attendance (students who actually attended)
-        const attendedStudents = await Attendance.countDocuments({ 
-          sessionId: session.sessionId, 
-          verified: true 
-        });
+        const attendedList = await Attendance.find({ sessionId: session.sessionId, verified: true });
+        const attendedStudents = (attendedList || []).length;
         
         return {
           session_id: session.sessionId,
@@ -186,8 +195,8 @@ class SessionsService {
     }
     
     // Get all attendance records for this session
-    const attendanceRecords = await Attendance.find({ sessionId })
-      .sort({ timestamp: 1 });
+    let attendanceRecords = await Attendance.find({ sessionId });
+    attendanceRecords = (attendanceRecords || []).sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
     
     // Get student details for each attendance record
     const studentsWithAttendance = await Promise.all(
@@ -211,7 +220,8 @@ class SessionsService {
 
   static async getAttendanceRaw(sessionId) {
     if (!sessionId) throw new Error('sessionId required');
-    const list = await Attendance.find({ sessionId }).sort({ timestamp: 1 }).limit(1000);
+    let list = await Attendance.find({ sessionId });
+    list = (list || []).sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0)).slice(0, 1000);
     return { sessionId, count: list.length, attendance: list };
   }
 

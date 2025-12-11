@@ -36,7 +36,7 @@ class LeaveService {
 			userId,
 			startDate: { $lte: end },
 			endDate: { $gte: start },
-		}).lean();
+		});
 		if (overlapping) throw new Error('overlapping_leave');
 
 		const doc = await Leave.create({
@@ -46,13 +46,13 @@ class LeaveService {
 			reason: reason.trim(),
 			status: 'pending',
 		});
-
-		return doc.toObject();
+		return doc;
 	}
 
 	static async listMyLeaves(userId) {
 		if (!userId) throw new Error('user_required');
-		const leaves = await Leave.find({ userId }).sort({ createdAt: -1 }).lean();
+		const leavesRaw = await Leave.find({ userId });
+		const leaves = (leavesRaw || []).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 		return leaves;
 	}
 
@@ -61,23 +61,23 @@ class LeaveService {
 		if (status && status !== 'all') {
 			query.status = status;
 		}
-		const leaves = await Leave.find(query).sort({ createdAt: -1 }).lean();
+		const leavesRaw = await Leave.find(query);
+		const leaves = (leavesRaw || []).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 		return leaves;
 	}
 
 	static async reviewLeave(leaveId, status, reviewerId, note) {
 		if (!leaveId) throw new Error('leaveId required');
 		if (!['approved', 'rejected'].includes(status)) throw new Error('invalid_status');
-
-		const leave = await Leave.findById(leaveId);
+		const leave = await Leave.findOne({ id: leaveId });
 		if (!leave) throw new Error('leave_not_found');
-
-		leave.status = status;
-		leave.reviewedBy = reviewerId || null;
-		leave.reviewNote = note || null;
-		await leave.save();
-
-		return leave.toObject();
+		await Leave.updateOne({ id: leaveId }, { $set: {
+			status,
+			reviewedBy: reviewerId || null,
+			reviewNote: note || null,
+		} });
+		const updated = await Leave.findOne({ id: leaveId });
+		return updated;
 	}
 
 	static async hasActiveApprovedLeave(userId, onDate = new Date()) {
@@ -89,7 +89,7 @@ class LeaveService {
 			status: 'approved',
 			startDate: { $lte: dayEnd },
 			endDate: { $gte: dayStart },
-		}).lean();
+		});
 		return !!doc;
 	}
 }

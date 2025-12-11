@@ -1,14 +1,7 @@
-const mongoose = require('mongoose');
+const { FirestoreModel } = require('./_firestoreModel');
 
-const ChallengeSchema = new mongoose.Schema({
-  userId: { type: String, required: true, unique: true },
-  challenge: { type: String, required: true },
-  expiresAt: { type: Date, required: true },
-  used: { type: Boolean, default: false },
-  createdAt: { type: Date, default: () => new Date() },
-});
+// Firestore collection for challenges, using userId as doc id.
+// TTL/expiry must be enforced via app logic or Firestore TTL policies.
+const Challenge = FirestoreModel('challenges', { idField: 'userId' });
 
-// Ensure stale documents are removed automatically once expiresAt is in the past
-ChallengeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-
-module.exports = mongoose.model('Challenge', ChallengeSchema);
+module.exports = Challenge;

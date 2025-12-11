@@ -1,19 +1,6 @@
-const mongoose = require('mongoose');
+const { FirestoreModel } = require('./_firestoreModel');
 
-const LeaveSchema = new mongoose.Schema({
-	userId: { type: String, required: true, index: true }, // user uid
-	startDate: { type: Date, required: true },
-	endDate: { type: Date, required: true },
-	reason: { type: String, required: true, trim: true },
-	status: {
-		type: String,
-		enum: ['pending', 'approved', 'rejected'],
-		default: 'pending',
-	},
-	reviewedBy: { type: String, default: null },
-	reviewNote: { type: String, default: null },
-}, {
-	timestamps: true,
-});
+// Firestore collection for leave requests. Use auto id; filter by userId.
+const Leave = FirestoreModel('leaves', { idField: 'id' });
 
-module.exports = mongoose.model('Leave', LeaveSchema);
+module.exports = Leave;

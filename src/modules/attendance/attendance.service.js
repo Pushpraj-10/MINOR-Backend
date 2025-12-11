@@ -71,7 +71,7 @@ class AttendanceService {
     if (sessionId) sess = await Session.findOne({ sessionId });
     if (!sess && qrToken) sess = await Session.findOne({ qrToken });
     if (!sess) throw new Error('session not found');
-    if (sess.expiresAt.getTime() < Date.now()) throw new Error('session expired');
+    if (new Date(sess.expiresAt).getTime() < Date.now()) throw new Error('session expired');
 
     if (sess.qrSeed) {
       if (!qrToken) throw new Error('qrToken required');
@@ -111,13 +111,24 @@ class AttendanceService {
         }
       }
 
-      const update = {
-        $setOnInsert: { sessionId: sess.sessionId, studentUid },
-        $set: { timestamp: new Date(), verified: true, method: 'biometric' }
-      };
-
-      const result = await Attendance.findOneAndUpdate(filter, update, { new: true, upsert: true });
-      return { ok: true, verified: true, attendance: AttendanceService.formatAttendance(result) };
+      // Upsert emulation for Firestore
+      const existing = await Attendance.findOne(filter);
+      let updated;
+      if (!existing) {
+        updated = await Attendance.create({
+          sessionId: sess.sessionId,
+          studentUid,
+          timestamp: new Date(),
+          verified: true,
+          method: 'biometric',
+        });
+      } else {
+        await Attendance.updateOne(filter, {
+          $set: { timestamp: new Date(), verified: true, method: 'biometric' },
+        });
+        updated = await Attendance.findOne(filter);
+      }
+      return { ok: true, verified: true, attendance: AttendanceService.formatAttendance(updated) };
     }
 
     const existingVerified = await Attendance.findOne(filter);
@@ -128,12 +139,23 @@ class AttendanceService {
     const user = await User.findOne({ uid: studentUid });
     if (!user) throw new Error('user not found');
 
-    const update = {
-      $setOnInsert: { sessionId: sess.sessionId, studentUid },
-      $set: { timestamp: new Date(), verified: false, method: 'qr' }
-    };
-
-    const result = await Attendance.findOneAndUpdate(filter, update, { new: true, upsert: true });
+    // Upsert emulation for Firestore
+    const existing = await Attendance.findOne(filter);
+    let result;
+    if (!existing) {
+      result = await Attendance.create({
+        sessionId: sess.sessionId,
+        studentUid,
+        timestamp: new Date(),
+        verified: false,
+        method: 'qr',
+      });
+    } else {
+      await Attendance.updateOne(filter, {
+        $set: { timestamp: new Date(), verified: false, method: 'qr' },
+      });
+      result = await Attendance.findOne(filter);
+    }
     return { ok: true, verified: result.verified, attendance: AttendanceService.formatAttendance(result) };
   }
 
@@ -154,7 +176,7 @@ class AttendanceService {
     if (sessionId) sess = await Session.findOne({ sessionId });
     if (!sess && qrToken) sess = await Session.findOne({ qrToken });
     if (!sess) throw new Error('session not found');
-    if (sess.expiresAt.getTime() < Date.now()) throw new Error('session expired');
+    if (new Date(sess.expiresAt).getTime() < Date.now()) throw new Error('session expired');
 
     if (sess.qrSeed) {
       if (!qrToken) throw new Error('qrToken required');
@@ -165,30 +187,40 @@ class AttendanceService {
     }
 
     const filter = { sessionId: sess.sessionId, studentUid };
-    const update = {
-      $setOnInsert: { sessionId: sess.sessionId, studentUid },
-      $set: {
+    // Upsert emulation for Firestore
+    const existing = await Attendance.findOne(filter);
+    let result;
+    if (!existing) {
+      result = await Attendance.create({
+        sessionId: sess.sessionId,
+        studentUid,
         timestamp: new Date(),
         verified: false,
         method: 'leave',
         note: reason || null,
-      },
-    };
-
-    const result = await Attendance.findOneAndUpdate(filter, update, { new: true, upsert: true });
+      });
+    } else {
+      await Attendance.updateOne(filter, {
+        $set: {
+          timestamp: new Date(),
+          verified: false,
+          method: 'leave',
+          note: reason || null,
+        },
+      });
+      result = await Attendance.findOne(filter);
+    }
     return { ok: true, attendance: AttendanceService.formatAttendance(result) };
   }
 
   static async getAttendanceStatistics(userId) {
     if (!userId) throw new Error('userId required');
 
-    const user = await User.findOne({ uid: userId }).lean();
+    const user = await User.findOne({ uid: userId });
     const userBatch = user?.batch || null;
 
     // Fetch all sessions that have expired (cannot be marked anymore)
-    const sessions = await Session.find({ expiresAt: { $lt: new Date() } })
-      .select('sessionId title professorUid expiresAt createdAt meta')
-      .lean();
+    const sessions = await Session.find({ expiresAt: { $lt: new Date() } });
 
     const filteredSessions = userBatch
       ? sessions.filter((s) => {
@@ -210,9 +242,7 @@ class AttendanceService {
     const attendance = await Attendance.find({
       studentUid: userId,
       sessionId: { $in: sessionIds },
-    })
-      .select('sessionId verified method timestamp note')
-      .lean();
+    });
 
     const attendanceBySession = new Map();
     for (const doc of attendance) {
@@ -261,14 +291,14 @@ class AttendanceService {
     const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 200);
     const safeSkip = Math.max(parseInt(skip, 10) || 0, 0);
 
-    const [records, stats] = await Promise.all([
-      Attendance.find({ studentUid: userId })
-        .sort({ timestamp: -1 })
-        .skip(safeSkip)
-        .limit(safeLimit)
-        .lean(),
+    const [recordsRaw, stats] = await Promise.all([
+      Attendance.find({ studentUid: userId }),
       AttendanceService.getAttendanceStatistics(userId),
     ]);
+
+    // Emulate sort/skip/limit client-side
+    const recordsSorted = (recordsRaw || []).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const records = recordsSorted.slice(safeSkip, safeSkip + safeLimit);
 
     return {
       records: records.map(AttendanceService.formatAttendance),
@@ -285,11 +315,19 @@ class AttendanceService {
       query.$or = [{ name: regex }, { email: regex }, { uid: regex }];
     }
 
-    const users = await User.find(query)
-      .select('-passwordHash')
-      .sort({ name: 1, email: 1 })
-      .limit(safeLimit)
-      .lean();
+    let users = await User.find(query);
+    users = (users || [])
+      .map(u => {
+        const copy = { ...u };
+        delete copy.passwordHash;
+        return copy;
+      })
+      .sort((a, b) => {
+        const an = (a.name || '').localeCompare(b.name || '');
+        if (an !== 0) return an;
+        return (a.email || '').localeCompare(b.email || '');
+      })
+      .slice(0, safeLimit);
 
     return users;
   }

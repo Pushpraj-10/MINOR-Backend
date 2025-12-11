@@ -7,7 +7,15 @@ const cookieParser = require('cookie-parser');
 const http = require('http');
 require('dotenv').config();
 
-const { connectToDatabase } = require('./config/db');
+// Initialize Firestore (required for full migration)
+const { connectToFirestore } = require('./config/firestore');
+let firestoreReady = false;
+try {
+  const _db = connectToFirestore();
+  firestoreReady = !!_db;
+} catch (err) {
+  console.error('Firestore initialization failed:', err && err.message ? err.message : err);
+}
 const apiRouter = require('./router');
 const { initRealtime } = require('./realtime');
 
@@ -46,14 +54,17 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
   try {
-    await connectToDatabase();
+    // Require Firestore; abort if not ready
+    if (!firestoreReady) {
+      throw new Error('Firestore not configured. Set FIRESTORE_URI or FIRESTORE_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS.');
+    }
     initRealtime(server);
 
     server.listen(PORT, () =>
       console.log('Server listening on port ' + PORT)
     );
   } catch (err) {
-    console.error('Failed to connect to MongoDB:', err.message);
+    console.error('Failed to initialize Firestore data layer:', err.message);
     process.exit(1);
   }
 }
