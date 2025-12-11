@@ -18,10 +18,48 @@ class SessionsService {
   static async createSession(body, authorization) {
     const { title, durationMinutes = 30 } = body || {};
     const decoded = authzProfessor(authorization);
+    const now = new Date();
+
+    // Enforce daily limits: max two sessions per day
+    const dayStart = new Date(now); dayStart.setHours(0,0,0,0);
+    const dayEnd = new Date(now); dayEnd.setHours(23,59,59,999);
+    const sessionsToday = await Session.find({
+      professorUid: decoded.uid,
+      createdAt: { $gte: dayStart, $lte: dayEnd },
+    }).lean();
+    if (sessionsToday.length >= 2) {
+      const err = new Error('daily_session_limit_exceeded');
+      err.status = 400;
+      throw err;
+    }
+
+    // Enforce time windows: 9AM-1PM or 2PM-6PM
+    const hour = now.getHours();
+    const inMorning = hour >= 9 && hour < 13; // 9:00 - 12:59
+    const inAfternoon = hour >= 14 && hour < 18; // 14:00 - 17:59
+    if (!inMorning && !inAfternoon) {
+      const err = new Error('outside_allowed_window');
+      err.status = 400;
+      throw err;
+    }
+
+    // Prevent creating multiple sessions within same window
+    const windowTag = inMorning ? 'morning' : 'afternoon';
+    const hasWindowSession = sessionsToday.some(s => {
+      const h = new Date(s.createdAt).getHours();
+      const m = h >= 9 && h < 13;
+      const a = h >= 14 && h < 18;
+      return (windowTag === 'morning' && m) || (windowTag === 'afternoon' && a);
+    });
+    if (hasWindowSession) {
+      const err = new Error('window_already_used');
+      err.status = 400;
+      throw err;
+    }
+
     const sessionId = 'sess_' + Date.now();
     // qrSeed is a cryptographically strong random value used to derive per-second rotating tokens
     const qrSeed = crypto.randomBytes(32).toString('hex');
-    const now = new Date();
     const expiresAt = new Date(now.getTime() + durationMinutes * 60 * 1000);
     const doc = await Session.create({ sessionId, professorUid: decoded.uid, title: title || null, qrSeed, createdAt: now, expiresAt });
     return { sessionId: doc.sessionId, expiresAt: doc.expiresAt };
