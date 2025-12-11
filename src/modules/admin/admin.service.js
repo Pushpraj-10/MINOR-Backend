@@ -6,6 +6,7 @@ const fs = require('fs');
 const { parse } = require('csv-parse/sync');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const Attendance = require('../../models/attendance');
 
 const ALLOWED_ROLES = AuthService.ALLOWED_ROLES || ['student', 'professor', 'admin'];
 const DEFAULT_PAGE_SIZE = 25;
@@ -255,6 +256,65 @@ class AdminService {
       failureCount: errors.length,
       errors,
     };
+  }
+
+  // -----------------------------
+  // Monthly Attendance CSV
+  // -----------------------------
+  static _monthRange(monthStr) {
+    // monthStr: YYYY-MM
+    const [y, m] = monthStr.split('-').map((s) => parseInt(s, 10));
+    const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+    const end = new Date(Date.UTC(y, m, 1, 0, 0, 0)); // exclusive
+    return { start, end };
+  }
+
+  static async _listStudents(batch) {
+    const query = { role: 'student' };
+    if (batch) query.batch = batch;
+    const users = await User.find(query)
+      .select('uid name batch')
+      .lean();
+    return users;
+  }
+
+  static _distinctDayCount(docs) {
+    const set = new Set();
+    for (const d of docs) {
+      const ts = d.timestamp instanceof Date ? d.timestamp : new Date(d.timestamp);
+      const key = ts.toISOString().slice(0, 10); // YYYY-MM-DD in UTC
+      set.add(key);
+    }
+    return set.size;
+  }
+
+  static _daysInMonth(monthStr) {
+    const [y, m] = monthStr.split('-').map((s) => parseInt(s, 10));
+    return new Date(y, m, 0).getDate();
+  }
+
+  static async buildMonthlyAttendanceCsv({ month, batch }) {
+    const { start, end } = this._monthRange(month);
+    const students = await this._listStudents(batch);
+
+    const header = 'student_name,days_present,days_absent\n';
+    const rows = [];
+    const totalDays = this._daysInMonth(month);
+
+    for (const s of students) {
+      const attendanceDocs = await Attendance.find({
+        studentUid: s.uid,
+        timestamp: { $gte: start, $lt: end },
+        verified: true,
+      }).select('timestamp').lean();
+
+      const presentDays = this._distinctDayCount(attendanceDocs);
+      const absentDays = Math.max(totalDays - presentDays, 0);
+      const safeName = (s.name || 'Unknown').replace(/"/g, '""');
+      rows.push(`${safeName},${presentDays},${absentDays}`);
+    }
+
+    return header + rows.join('\n');
   }
 }
 

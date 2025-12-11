@@ -12,6 +12,16 @@ async function ensureAdmin(req) {
   return profile;
 }
 
+async function ensureProfessor(req) {
+  const profile = await AuthService.getProfile(req.headers.authorization);
+  if (!profile?.user || profile.user.role !== 'professor') {
+    const err = new Error('forbidden');
+    err.status = 403;
+    throw err;
+  }
+  return profile;
+}
+
 function handleError(res, err) {
   const status = err.status || (err.message === 'forbidden' ? 403 : 400);
   res.status(status).json({ error: err.message });
@@ -92,6 +102,52 @@ exports.bulkImportUsers = async function bulkImportUsers(req, res) {
     if (!uploadId || !mapping) throw new Error('uploadId_and_mapping_required');
     const result = await AdminService.importCsvUpload(uploadId, mapping);
     res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+// -----------------------------
+// Monthly CSV Attendance Reports
+// -----------------------------
+exports.monthlyReportAdmin = async function monthlyReportAdmin(req, res) {
+  try {
+    await ensureAdmin(req);
+    const month = String(req.query.month || '').trim(); // format: YYYY-MM
+    const batch = req.query.batch ? String(req.query.batch).trim() : null;
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      const err = new Error('invalid_month');
+      err.status = 400;
+      throw err;
+    }
+    const csv = await AdminService.buildMonthlyAttendanceCsv({ month, batch });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).send(csv);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+exports.monthlyReportProfessor = async function monthlyReportProfessor(req, res) {
+  try {
+    const profile = await ensureProfessor(req);
+    const month = String(req.query.month || '').trim();
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      const err = new Error('invalid_month');
+      err.status = 400;
+      throw err;
+    }
+    const batch = profile.user.batch || null;
+    if (!batch) {
+      const err = new Error('batch_required');
+      err.status = 400;
+      throw err;
+    }
+    const csv = await AdminService.buildMonthlyAttendanceCsv({ month, batch });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).send(csv);
   } catch (err) {
     handleError(res, err);
   }

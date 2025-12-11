@@ -15,4 +15,8 @@ router.post('/users/bulk/import', adminLimiter, controller.bulkImportUsers);
 router.get('/biometrics/requests', adminLimiter, controller.listBiometricRequests);
 router.post('/biometrics/requests/:userId/approve', adminLimiter, controller.approveBiometricRequest);
 
+// Monthly CSV attendance reports
+router.get('/reports/monthly', adminLimiter, controller.monthlyReportAdmin);
+router.get('/reports/monthly/professor', adminLimiter, controller.monthlyReportProfessor);
+
 module.exports = router;
