@@ -57,3 +57,16 @@ exports.reviewLeave = async function reviewLeave(req, res) {
 		res.status(err.status || 400).json({ error: err.message });
 	}
 };
+
+exports.activeLeaveStatus = async function activeLeaveStatus(req, res) {
+	try {
+		const profile = await AuthService.getProfile(req.headers.authorization);
+		const userId = (req.query?.userId && req.query.userId !== 'me')
+			? req.query.userId
+			: profile?.user?.uid;
+		const active = await LeaveService.hasActiveApprovedLeave(userId, new Date());
+		res.json({ active });
+	} catch (err) {
+		res.status(400).json({ error: err.message });
+	}
+};

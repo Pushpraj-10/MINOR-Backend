@@ -79,6 +79,19 @@ class LeaveService {
 
 		return leave.toObject();
 	}
+
+	static async hasActiveApprovedLeave(userId, onDate = new Date()) {
+		if (!userId) throw new Error('user_required');
+		const dayStart = this._startOfDay(onDate);
+		const dayEnd = this._endOfDay(onDate);
+		const doc = await Leave.findOne({
+			userId,
+			status: 'approved',
+			startDate: { $lte: dayEnd },
+			endDate: { $gte: dayStart },
+		}).lean();
+		return !!doc;
+	}
 }
 
 module.exports = LeaveService;
