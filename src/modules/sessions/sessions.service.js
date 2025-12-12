@@ -35,7 +35,7 @@ class SessionsService {
 
     // Enforce time windows: 9AM-1PM or 2PM-6PM
     const hour = now.getHours();
-    const inMorning = hour >= 9 && hour < 13; // 9:00 - 12:59
+    const inMorning = hour >= 8 && hour < 13; // 9:00 - 12:59
     const inAfternoon = hour >= 14 && hour < 18; // 14:00 - 17:59
     if (!inMorning && !inAfternoon) {
       const err = new Error('outside_allowed_window');
