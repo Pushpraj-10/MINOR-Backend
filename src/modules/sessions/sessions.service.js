@@ -33,11 +33,13 @@ class SessionsService {
       throw err;
     }
 
-    // Enforce time windows: 8AM-6PM (Morning: 8-13, Afternoon: 13-18)
+    // Enforce time windows: 0AM-24PM (Morning: 0-13, Afternoon: 13-24) for testing
     const hour = now.getHours();
-    const inMorning = hour >= 8 && hour < 13; // 8:00 - 12:59
-    const inAfternoon = hour >= 13 && hour < 18; // 13:00 - 17:59
+    console.log(`[CreateSession] Current server hour: ${hour}`);
+    const inMorning = hour >= 0 && hour < 13; // 0:00 - 12:59
+    const inAfternoon = hour >= 13 && hour < 24; // 13:00 - 23:59
     if (!inMorning && !inAfternoon) {
+      console.log('[CreateSession] Outside allowed window');
       const err = new Error('outside_allowed_window');
       err.status = 400;
       throw err;
@@ -47,8 +49,8 @@ class SessionsService {
     const windowTag = inMorning ? 'morning' : 'afternoon';
     const hasWindowSession = sessionsToday.some(s => {
       const h = new Date(s.createdAt).getHours();
-      const m = h >= 8 && h < 13;
-      const a = h >= 13 && h < 18;
+      const m = h >= 0 && h < 13;
+      const a = h >= 13 && h < 24;
       return (windowTag === 'morning' && m) || (windowTag === 'afternoon' && a);
     });
     if (hasWindowSession) {
